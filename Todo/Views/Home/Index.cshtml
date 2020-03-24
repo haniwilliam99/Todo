@@ -1,0 +1,346 @@
+﻿@{
+    ViewBag.Title = "Home Page";
+}
+
+<div class="jumbotron">
+    <h1>Todo</h1>
+
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="container">
+
+
+            <br />
+            <div style="width:90%; margin:0 auto;">
+                <div class="row">
+                    <button id="btnNew" class="btn btn-primary  " data-id="0"> New</button>
+                </div>
+                <div class="row">
+                    <br />
+                </div>
+                <div class="row">
+                    <table id="TodoTable" class="table table-striped table-bordered dt-responsive nowrap" width="100%" cellspacing="0">
+                        <thead>
+                            <tr>
+                                <th>Task Id</th>
+                                <th>Title</th>
+                                <th>Due Date</th>
+
+                                <th>Edit</th>
+                                <th>Delete</th>
+                                <th>Mark Complete</th>
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+
+        <div class="modal fade" id="exampleModalCenter" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" role="document">
+
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="exampleModalLongTitle">Todo</h5>
+
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group row">
+                            <input type="hidden" id="hdnId" value="0" />
+                            <label class="col-md-4 control-label">Title</label>
+                            <div class="col-md-8">
+                                <input type="text" class="form-control" required id="txtTitle" />
+
+
+                            </div>
+                        </div>
+                        <div class="form-group row">
+                            <input type="hidden" id="hdnId" value="0" />
+                            <label class="col-md-4 control-label">Due Date</label>
+                            <div class="col-md-8">
+                                <input type="text" class="form-control date-picker" required id="txtDueDate" />
+
+
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary " data-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary btnSave">Save </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+<style>
+    .ui-datepicker {
+        position: relative;
+        z-index: 10000 !important;
+    }
+
+    .date-picker {
+        z-index: 9999 !important
+    }
+
+    .datepicker {
+        z-index: 9999 !important
+    }
+
+
+    .greenClass {
+        background-color: aquamarine !important;
+    }
+
+        .greenClass td {
+            background-color: aquamarine !important;
+        }
+</style>
+@section Scripts {
+    @Scripts.Render("~/bundles/jqueryval")
+
+    <script>
+
+
+        $(document).ready(function () {
+
+
+            $("#txtDueDate").datepicker({
+                autoclose: true,
+
+            });
+           
+
+            $(document).on('click', '.btnDeleteModal', function () {
+
+                let id = $(this).attr('data-id');
+                Swal.fire({
+                    title: 'Are you sure?',
+                    text: "You won't be able to revert this!",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#3085d6',
+                    cancelButtonColor: '#d33',
+                    confirmButtonText: 'Yes, delete it!'
+                }).then((result) => {
+                    if (result.value) {
+                        $.ajax({
+                            cache: false,
+                            type: 'post',
+                            url: '/Home/Delete/' + id,
+
+                            dataType: 'json',
+                            success: function (response) {
+                                if (response.Code == 0) {
+
+                                    Swal.fire('',
+                                        'Deleted Successfully.'
+                                        , "success");
+                                    datatable.draw();
+                                }
+                            },
+                            error: function (response) {
+
+                            }
+                        });
+                    }
+                })
+
+            });
+
+            $(document).on('click', '.btnMarkcomplete', function () {
+
+                let id = $(this).attr('data-id');
+
+                $.ajax({
+                    cache: false,
+                    type: 'post',
+                    url: '/Home/MarkComplete/' + id,
+
+                    dataType: 'json',
+                    success: function (response) {
+                        if (response.Code == 0) {
+
+                            Swal.fire('',
+                                'Save Successfully.'
+                                , "success");
+                            datatable.draw();
+                        }
+                    },
+                    error: function (response) {
+
+                    }
+                });
+            });
+
+            $(document).on('click', '#btnNew', function () {
+
+                let id = $(this).attr('data-id');
+                $('#hdnId').val(id);
+                $('#txtTitle').val('');
+                $('#txtDueDate').val('');
+                $('#exampleModalCenter').modal('show');;
+
+            });
+
+
+            $(document).on('click', '.btnEdit', function () {
+
+                let id = $(this).attr('data-id');
+                $('#hdnId').val(id);
+                jQuery.ajax({
+                    cache: false,
+                    type: 'post',
+                    url: '/Home/Get/' + id,
+                    dataType: 'json',
+                    success: function (response) {
+                        if (response.Code == 0) {
+                            $('#txtTitle').val(response.Data.Title);
+                            let date = moment(response.Data.DueDate).format('MM/DD/YYYY')
+                            $('#txtDueDate').val(date);
+                            $('#exampleModalCenter').modal('show');;
+                        }
+                    },
+                    error: function (response) {
+
+                    }
+                });
+            });
+
+
+            $(document).on('click', '.btnSave', function () {
+
+                let id = $('#hdnId').val();
+                let title = $('#txtTitle').val();
+                let dueDate = $('#txtDueDate').val();
+                if (!title || title.length <= 0) {
+
+                    $('#txtTitle').addClass('input-validation-error');
+                    return false;
+                }
+
+                if (!dueDate || title.dueDate <= 0) {
+
+                    $('#txtDueDate').addClass('input-validation-error');
+                    return false;
+                }
+                $('#exampleModalCenter').modal('hide');
+                $.ajax({
+                    cache: false,
+                    type: 'post',
+                    url: '/Home/Edit/',
+                    data: {
+                        Id: id,
+                        Title: title,
+                        DueDate: dueDate
+                    },
+                    dataType: 'json',
+                    success: function (response) {
+                        if (response.Code == 0) {
+
+                            Swal.fire('',
+                                'Save Successfully.'
+                                , "success");
+                            datatable.draw();
+                        }
+                    },
+                    error: function (response) {
+
+                    }
+                });
+            });
+
+
+            var datatable = $("#TodoTable").DataTable({
+
+                "processing": true, // for show progress bar
+                "serverSide": true, // for process server side
+                "filter": true, // this is for disable filter (search box)
+                "orderMulti": false, // for disable multiple column at once
+                "pageLength": 5,
+
+                "ajax": {
+                    "url": "/Home/LoadData",
+                    "type": "POST",
+                    "datatype": "json"
+                },
+                "createdRow": function (row, data, dataIndex) {
+                    if (data.Status == 2) {
+                        $(row).addClass('greenClass');
+                    }
+                },
+
+                "columnDefs":
+                    [{
+                        "targets": [0],
+                        "visible": false,
+                        "searchable": false
+                    },
+                    {
+                        "targets": [2],
+                        "visible": true,
+                        "sortable": false,
+                        "searchable": false
+                    },
+                    {
+                        "targets": [3],
+                        "visible": true,
+                        "sortable": false,
+                        "searchable": false
+                    }
+                    ],
+
+                "columns": [
+                    { "data": "ID", "name": "ID", "autoWidth": true },
+                    { "data": "Title", "name": "Title", "autoWidth": true },
+                    {
+                        render: function (data, type, full, meta) {
+                            return "<span> " + moment(full.DueDate).format('DD-MM-YYYY') + "</span>";
+                        }
+
+                    },
+
+
+                    {
+                        "render": function (data, type, full, meta) {
+                            if (full.Status != 2) {
+                                return "<button type='button' class='btn btn-info btnEdit'   data-id='" + full.ID + "' data-title='" + full.Title + "' >Edit</button>";
+                            } else {
+                                return "";
+                            }
+                        }
+                    },
+
+                    {
+                        render: function (data, type, row) {
+                            if (row.Status != 2) {
+                                return "<button type='button'  class='btn btn-success btnMarkcomplete' data-id='" + row.ID + "'  >Mark Complete</button>";
+                            }
+                            else {
+                                return "";
+                            }
+                        },
+
+                    },
+                    {
+                        render: function (data, type, row) {
+                            return "<button type='button'  class='btn btn-danger btnDeleteModal' data-id='" + row.ID + "'  >Delete</button>";
+                        },
+
+                    },
+
+                ]
+
+            });
+
+
+        });
+
+    </script>
+}
