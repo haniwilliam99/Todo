@@ -1,0 +1,2374 @@
+using EPAOzoneDAL;
+using EPAOzoneDAL.DBcontext;
+using EPAOzoneDAL.Enumerations;
+using EPAOzoneDAL2;
+using Microsoft.Reporting.WebForms;
+using Microsoft.SharePoint;
+using Microsoft.SharePoint.Utilities;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using System.Web;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+using System.Web.UI.WebControls.WebParts;
+
+namespace EPAOzoneWebParts1.CompanyDetailWebPart
+{
+    [ToolboxItemAttribute(false)]
+    public partial class CompanyDetailWebPart : WebPart
+    {
+
+        public CompanyDetailWebPart()
+        {
+        }
+
+        protected override void OnInit(EventArgs e)
+        {
+            base.OnInit(e);
+            InitializeControl();
+        }
+
+        private string strSiteUrl = SPContext.Current.Web.Url;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (!Page.IsPostBack)
+            {
+                revPassword.ValidationExpression = @"^(?=.*\d)(?=.*[a-z]*)(?=.*\W+)(?=.*[A-Z]*)(?=.*(([a-z]+)|([A-Z]+))).{8,12}$";
+                revConfirmPassword.ValidationExpression = @"^(?=.*\d)(?=.*[a-z]*)(?=.*\W+)(?=.*[A-Z]*)(?=.*(([a-z]+)|([A-Z]+))).{8,12}$";
+                revSecondaryPassword.ValidationExpression = @"^(?=.*\d)(?=.*[a-z]*)(?=.*\W+)(?=.*[A-Z]*)(?=.*(([a-z]+)|([A-Z]+))).{8,12}$";
+                revSecondaryConfirmPassword.ValidationExpression = @"^(?=.*\d)(?=.*[a-z]*)(?=.*\W+)(?=.*[A-Z]*)(?=.*(([a-z]+)|([A-Z]+))).{8,12}$";
+                LocalizeControls();
+                LoadControls();
+                ApplyValidation();
+
+                if (Page.Request.QueryString != null)
+                {
+                    if (Page.Request.QueryString.Count > 0)
+                        if (Page.Request.QueryString["cid"] != null)
+                        {
+                            byte[] dec = HttpServerUtility.UrlTokenDecode(Page.Request.QueryString["cid"].ToString());
+                            hdnCompanyID.Value = Encoding.UTF8.GetString(dec);
+                        }
+                }
+
+
+                if (IsEPAEmpOrHead())
+                {
+                    if (!string.IsNullOrEmpty(hdnCompanyID.Value))
+                    {
+
+                        lblh1CompanyHeader.InnerText = Util.GetLocalizedValue("UpdateCompanyDetails", Util.ResourceFile.EPAResource);
+                        hdnAddEditMode.Value = "Update";
+                        HideShowControlsOnUpdate(true);
+                        GetCompanyDetails();
+
+                    }
+                    else
+                    {
+                        hdnAddEditMode.Value = "Add";
+                        HideShowControlsOnUpdate(false);
+                    }
+                }
+
+                else
+                {
+
+                    if (string.IsNullOrEmpty(hdnCompanyID.Value))
+                    {
+                        var ci = CompanyHelper.GetCompanyByUserAccountID(SPContext.Current.Web.CurrentUser.ID);
+                        if (ci != null)
+                            hdnCompanyID.Value = ci.Id.ToString();
+                    }
+
+                    if (string.IsNullOrEmpty(hdnCompanyID.Value))
+                        Page.Response.Redirect(SPContext.Current.Site.Url);
+
+                    HideShowControlsOnUpdate(false);
+                    ViewCompanyDetails();
+
+                    lblh1CompanyHeader.InnerText = Util.GetLocalizedValue("ViewCompanyProfile", Util.ResourceFile.EPAResource);
+
+
+                }
+
+                if (Page.Request.QueryString["updPro"] != null)
+                {
+                    // btnUpdateProfile.Visible = true;
+                    txtCommercialRegistrationNumber.Enabled = true;
+                    rfvCRN.ValidationGroup = "updateProfile";
+
+                }
+
+                if (IsEPAEmpOrHead())
+                {
+                    btnApplychangeRequest.Visible= false;
+                }
+                else
+                {
+                    btnApplychangeRequest.Visible= true;
+                }
+
+
+
+            }
+        }
+
+        private static bool IsEPAEmpOrHead()
+        {
+            return Security.IsUserInGroup(Security.SecurityGroups.EPAEmployees, SPContext.Current.Web.CurrentUser.ID)
+                                || Security.IsUserInGroup(Security.SecurityGroups.EPADivisionHeads, SPContext.Current.Web.CurrentUser.ID);
+        }
+
+        private void ApplyValidation()
+        {
+
+            txtCivilID.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+
+            txtPhoneNumber.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+            txtMainUserCivilID.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+            txtMainUserMobile.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+
+            txtSecondaryUserMobile.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+
+            txtSecondaryUserCivilID.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+            txtCommercialRegistrationNumber.Attributes.Add("onkeypress", "return NumeralsOnly(event);");
+
+            txtCompanyNameArabi.Attributes.Add("onkeypress", "return CheckArabicCharactersOnly(event);");
+
+            txtCompanyNameArabi.Attributes.Add("onkeypress", "return CharacterOnly(event);");
+            txtCompanyNameEnglish.Attributes.Add("onkeypress", "return EnglishCharacterandWhiteSpace(event);");
+        }
+
+        private void HideShowControlsOnUpdate(bool flag)
+        {
+            lblOtherSetting.Visible = flag;
+            btnMainUserPrintPassword.Visible = flag;
+            btnMainUserGeneratePassword.Visible = flag;
+            btnSecondaryUserPrintPassword.Visible = flag;
+            btnSecondaryUserGeneratePassword.Visible = flag;
+
+            lblNoOfViolation.Visible = flag;
+            txtNoOfViolation.Visible = flag;
+            chkStopOnlineService.Visible = flag;
+
+            divOtherSetting.Visible = flag;
+        }
+
+        private void LocalizeControls()
+        {
+            var localizeManager = new LocalizationManager();
+
+          //  btnApplychangeRequest.Text="تقديم طلب تعديل بيانات ";
+            lblCivilIdf1.InnerHtml = localizeManager.GetLocalizedString("CivilIdCopy");
+            lblCivilIdf2.InnerText=localizeManager.GetLocalizedString("CivilIdCopy");
+
+            btnApplychangeRequest.Text = localizeManager.GetLocalizedString("New_Change_Request");
+            lblh1CompanyHeader.InnerText = Util.GetLocalizedValue("RegisterNewCompany", Util.ResourceFile.EPAResource);
+            lblh2CompanyHeader.InnerText = Util.GetLocalizedValue("CompanyDetails", Util.ResourceFile.EPAResource);
+            lblCompanyNameArabi.InnerHtml = Util.GetLocalizedValue("CompanyNameArabi", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblCompanyNameEnglish.InnerHtml = Util.GetLocalizedValue("CompanyNameEnglish", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblCivilID.InnerHtml = Util.GetLocalizedValue("PACINO", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            // lblFax.Text = Util.GetLocalizedValue("Fax", Util.ResourceFile.EPAResource);
+            lblPhoneNumber.InnerHtml = Util.GetLocalizedValue("Phone", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblOfficeAddress.InnerHtml = Util.GetLocalizedValue("Address", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblFormalEmail.InnerHtml = localizeManager.GetLocalizedString("FormalEmail") + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+
+            lblCompanyType.InnerText=localizeManager.GetLocalizedString("CompanyType");
+            lblGovNameAr.InnerHtml = localizeManager.GetLocalizedString("CompanyNameArabi") + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblGovNameEn.InnerHtml =localizeManager.GetLocalizedString("CompanyName") + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+
+            lblCommercialRegistrationNumber.InnerHtml = Util.GetLocalizedValue("CommercialRegistrationNumber", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+
+            lblComCentralNumber.InnerHtml = Util.GetLocalizedValue("CommercialCentralNo", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblLicIssuedDate.InnerHtml = Util.GetLocalizedValue("LicIssuedDate", Util.ResourceFile.EPAResource);
+            lblLicExpiryDate.InnerHtml = Util.GetLocalizedValue("LicExpiryDate", Util.ResourceFile.EPAResource);
+
+            lblCompanyRegistrationDocs.InnerHtml = Util.GetLocalizedValue("CompanyRegistrationDocument", Util.ResourceFile.EPAResource);
+            //First User Details
+            //   lblCriteria.Text = lblCriteriaSecondary.Text = lblDocumentCriteria.Text = string.Format(Util.GetLocalizedValue("MaxFileSize", Util.ResourceFile.EPAResource), Configuration.GetConfigurationValue(ConfigurationKey.MaxFileSizeInMB));
+            lblUsersDetail.InnerHtml = Util.GetLocalizedValue("CompanyUsersDetails", Util.ResourceFile.EPAResource);
+            lblMainUserDetails.InnerHtml = Util.GetLocalizedValue("MainUserDetails", Util.ResourceFile.EPAResource);
+            lblMainUserNameArabic.InnerHtml = Util.GetLocalizedValue("NameArabic", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblMainUserNameEnglish.InnerHtml = Util.GetLocalizedValue("NameEnglish", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblMainUserCivilID.InnerHtml = Util.GetLocalizedValue("CivilID", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblMainUserDesignation.InnerHtml = Util.GetLocalizedValue("Designation", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblMainUserMobile.InnerHtml = Util.GetLocalizedValue("Mobile", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblMainUserEmailID.InnerHtml = Util.GetLocalizedValue("Email", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblUserName.InnerHtml = Util.GetLocalizedValue("UserName", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblPassword.InnerHtml = Util.GetLocalizedValue("Password", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblConfirmPassword.InnerHtml = Util.GetLocalizedValue("ConfirmPassword", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+
+            lblMainUserSerialNumber.InnerHtml = Util.GetLocalizedValue("SerialNumber", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserSerialNumber.InnerHtml = Util.GetLocalizedValue("SerialNumber", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+
+            chkSecondaryUserDetails.Text = Util.GetLocalizedValue("SecondaryUserDetails", Util.ResourceFile.EPAResource);
+            lblSecondaryUserNameArabic.InnerHtml = Util.GetLocalizedValue("NameArabic", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserNameEnglish.InnerHtml = Util.GetLocalizedValue("NameEnglish", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserCivilID.InnerHtml = Util.GetLocalizedValue("CivilID", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserDesignation.InnerHtml = Util.GetLocalizedValue("Designation", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserMobile.InnerHtml = Util.GetLocalizedValue("Mobile", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserEmailID.InnerHtml = Util.GetLocalizedValue("Email", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            // lblSecondaryUserLandline.Text = Util.GetLocalizedValue("Phone", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryUserName.InnerHtml = Util.GetLocalizedValue("UserName", Util.ResourceFile.EPAResource);
+            lblSecondaryUserName.InnerHtml = Util.GetLocalizedValue("UserName", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryPassword.InnerHtml = Util.GetLocalizedValue("Password", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+            lblSecondaryConfirmPassword.InnerHtml = Util.GetLocalizedValue("ConfirmPassword", Util.ResourceFile.EPAResource) + Util.GetLocalizedValue("RequiredFiledText", Util.ResourceFile.EPAResource);
+
+            btnSave.Text = Util.GetLocalizedValue("Save", Util.ResourceFile.EPAResource);
+
+            btnCancel.Text = Util.GetLocalizedValue("Cancel", Util.ResourceFile.EPAResource);
+
+            btnMainUserPrintPassword.Text = Util.GetLocalizedValue("PrintPassword", Util.ResourceFile.EPAResource);
+            btnMainUserGeneratePassword.Text = Util.GetLocalizedValue("GeneratePassword", Util.ResourceFile.EPAResource);
+            btnSecondaryUserPrintPassword.Text = Util.GetLocalizedValue("PrintPassword", Util.ResourceFile.EPAResource);
+            btnSecondaryUserGeneratePassword.Text = Util.GetLocalizedValue("GeneratePassword", Util.ResourceFile.EPAResource);
+
+            lblOtherSetting.InnerHtml = Util.GetLocalizedValue("OtherSetting", Util.ResourceFile.EPAResource);
+            lblNoOfViolation.InnerHtml = Util.GetLocalizedValue("NumberofViolations", Util.ResourceFile.EPAResource);
+            chkStopOnlineService.Text = Util.GetLocalizedValue("StopOnlineServices", Util.ResourceFile.EPAResource);
+            blsDocuments.InnerHtml = Util.GetLocalizedValue("ReqDocsList", Util.ResourceFile.EPAResource);
+            revPhoneNumber.Text = Util.GetLocalizedValue("ValidPhoneNumber", Util.ResourceFile.EPAMessage);
+            revOfficeAddress.Text = string.Format(Util.GetLocalizedValue("ValidationMaxAllowedChars", Util.ResourceFile.EPAMessage), txtOfficeAddress.MaxLength);
+            revMainUserCivilID.Text = Util.GetLocalizedValue("CivilIDValidation", Util.ResourceFile.EPAMessage);
+            revMainUserMobile.Text = Util.GetLocalizedValue("MobileNumberValidation", Util.ResourceFile.EPAMessage);
+            revExpMainUserEMialID.Text = Util.GetLocalizedValue("ValidEmailIDFormat", Util.ResourceFile.EPAMessage);
+            // revMainUserLandline.Text = Util.GetLocalizedValue("ValidPhoneNumber", Util.ResourceFile.EPAMessage);
+            // Validation Controls Message //To Do
+            revSecondaryUserCivilID.Text = Util.GetLocalizedValue("CivilIDValidation", Util.ResourceFile.EPAMessage);
+            revSecondaryUserMobile.Text = Util.GetLocalizedValue("MobileNumberValidation", Util.ResourceFile.EPAMessage);
+            revSecondaryUserEmail.Text = Util.GetLocalizedValue("ValidEmailIDFormat", Util.ResourceFile.EPAMessage);
+            //  revSecondaryUserLandline.Text = Util.GetLocalizedValue("ValidPhoneNumber", Util.ResourceFile.EPAMessage);
+
+            revPassword.Text = Util.GetLocalizedValue("PasswordComplexityNotMet", Util.ResourceFile.EPAMessage);
+            revConfirmPassword.Text = Util.GetLocalizedValue("PasswordComplexityNotMet", Util.ResourceFile.EPAMessage);
+            revSecondaryPassword.Text = Util.GetLocalizedValue("PasswordComplexityNotMet", Util.ResourceFile.EPAMessage);
+            revSecondaryConfirmPassword.Text = Util.GetLocalizedValue("PasswordComplexityNotMet", Util.ResourceFile.EPAMessage);
+            cfvSecondaryConfirmPassword.Text = cfvConfirm.Text = Util.GetLocalizedValue("PasswordMismatch", Util.ResourceFile.EPAMessage);
+
+            comUserEmailID.Text = Util.GetLocalizedValue("SameEMailID", Util.ResourceFile.EPAMessage);
+            comUserMobile.Text = Util.GetLocalizedValue("SameMobileID", Util.ResourceFile.EPAMessage);
+            comUserCIVILID.Text = Util.GetLocalizedValue("SameCIVILID", Util.ResourceFile.EPAMessage);
+            lblRegDocs.InnerHtml = Util.GetLocalizedValue("ViewDocMsg", Util.ResourceFile.EPAResource);
+
+            hdnOnlineServiceActive.Value = Util.GetLocalizedValue("ActivateOnlineServices", Util.ResourceFile.EPAMessage);
+            hdnOnlineServiceStop.Value = Util.GetLocalizedValue("StopOnlineServices", Util.ResourceFile.EPAMessage);
+            lblRequestStatusHistory.InnerHtml = Util.GetLocalizedValue("RequestStatusHistory", Util.ResourceFile.EPAResource);
+  
+        }
+
+
+        private void GetCompanyDetails()
+        {
+            lblPassword.Visible = false;
+            txtPassword.Visible = false;
+            lblConfirmPassword.Visible = false;
+            txtConfirmPassword.Visible = false;
+            lblSecondaryPassword.Visible = false;
+            lblSecondaryConfirmPassword.Visible = false;
+            txtSecondaryPassword.Visible = false;
+            txtSecondaryConfirmPassword.Visible = false;
+            refConfirmPassword.Visible = false;
+            refConfirmPassword.Enabled = false;
+            rvfPassword.Visible = false;
+            revPassword.Enabled = false;
+
+            txtUserName.ReadOnly = true;
+
+            int CompanyID = Convert.ToInt32(hdnCompanyID.Value);
+
+            //Populate company details
+            var objCom = CompanyHelper.GetCompanyByID(CompanyID);
+
+
+
+            if (objCom.CompanyTypeID==1)
+            {
+
+                txtCompanyNameArabi.Text = objCom.NameArabic;
+                txtCompanyNameEnglish.Text = objCom.Title;
+                txtCivilID.Text = objCom.CivilID;
+                txtFormalEmail.Text = objCom.FormalEmail;
+                txtPhoneNumber.Text = objCom.PhoneNumber;
+                txtOfficeAddress.Text = objCom.Address;
+                //  txtCompanyCode.Text = objCom.CompanyCode;
+                txtCommercialRegistrationNumber.Text = objCom.CommercialRegNo;
+                txtNoOfViolation.Text = objCom.ViolationsCount.ToString();
+
+                //TODO
+                txtComCentralNumber.Text = objCom.CentralNumber;
+                hdnLicIssueDate.Value = txtLicIssuedDate.Text = objCom.LicIssueDate;
+                hdnLicEndDate.Value = txtLicExpiryDate.Text = objCom.LicExpiryDate;
+                cblCompanytType.SelectedValue="1";
+                DivGovSector.Visible=false;
+                DivPrivateCompany.Visible=true;
+            }
+            else
+            {
+                cblCompanytType.SelectedValue="2";
+                txtGovNameAr.Text = objCom.NameArabic;
+                txtGovNameEn.Text = objCom.Title;
+
+                DivGovSector.Visible=true;
+                DivPrivateCompany.Visible=false;
+            }
+
+
+
+            chkStopOnlineService.Checked = (Convert.ToBoolean(objCom.IsBlockedManually) == true) ? true : Convert.ToBoolean(objCom.IsBlockedBySystem);
+            hdnChekcBoxOrigninalVlaue.Value = Convert.ToString(Convert.ToInt32(chkStopOnlineService.Checked));
+
+
+            BindRequiredAttachmentDocs(CompanyID);
+            BindRequestStatusHistoryByCompany();
+
+            var lstCompanyUsers = CompanyHelper.GetCompanyUsersByCompanyID(CompanyID);
+            if (lstCompanyUsers.Count > 0)
+            {
+                //Populate main user detail
+                var objUser1 = lstCompanyUsers[0];
+
+                txtMainUserNameArabic.Text = objUser1.NameArabic;
+                txtMainUserNameEnglish.Text = objUser1.Title;
+                txtMainUserCivilID.Text = objUser1.CivilID;
+                txtMainUserDesignation.Text = objUser1.Designation;
+                txtMainUserMobile.Text = objUser1.MobileNumber;
+                txtMainUserEmailID.Text = objUser1.Email;
+                //txtMainUserLandline.Text = objUser1.PhoneNumber;
+                txtUserName.Text = objUser1.UserAccountName;
+                txtMainUserSerialNumber.Text = objUser1.SerialNumber;
+                hlCivilIdCopy1.Visible=false;
+                hlCivilCopy2.Visible=false;
+                if (!string.IsNullOrWhiteSpace(objUser1.CivilIdFilePath))
+                {
+
+                    hlCivilIdCopy1.NavigateUrl= FileServerHelper.GetSecureURL(objUser1.CivilIdFilePath); //FileServerHelper.CDNURL+objUser1.CivilIdFilePath;
+                    hlCivilIdCopy1.Visible= true;
+
+                }
+
+
+                //Populate secondary user detail
+                if (lstCompanyUsers.Count > 1)
+                {
+                    objUser1 = lstCompanyUsers[1];
+
+                    chkSecondaryUserDetails.Checked = true;
+                    txtSecondaryUserNameArabic.Text = objUser1.NameArabic;
+                    txtSecondaryUserNameEnglish.Text = objUser1.Title;
+                    txtSecondaryUserCivilID.Text = objUser1.CivilID;
+                    txtSecondaryUserDesignation.Text = objUser1.Designation;
+                    txtSecondaryUserMobile.Text = objUser1.MobileNumber;
+                    txtSecondaryUserEmailID.Text = objUser1.Email;
+                    // txtSecondaryUserLandline.Text = objUser1.PhoneNumber;
+                    txtSecondaryUserName.Text = objUser1.UserAccountName;
+                    txtSecondaryUserSerialNumber.Text = objUser1.SerialNumber;
+
+                    txtSecondaryUserCivilID.Enabled = chkSecondaryUserDetails.Checked;
+                    txtSecondaryUserSerialNumber.Enabled = chkSecondaryUserDetails.Checked;
+                    txtSecondaryUserDesignation.Enabled = chkSecondaryUserDetails.Checked;
+                    txtSecondaryUserMobile.Enabled = chkSecondaryUserDetails.Checked;
+                    txtSecondaryUserEmailID.Enabled = chkSecondaryUserDetails.Checked;
+                    chkSecondaryUserDetails.Enabled=false;
+
+                    if (!string.IsNullOrWhiteSpace(objUser1.CivilIdFilePath))
+                    {
+
+                        hlCivilCopy2.NavigateUrl=FileServerHelper.GetSecureURL(objUser1.CivilIdFilePath);//FileServerHelper.CDNURL+objUser1.CivilIdFilePath;
+                        hlCivilCopy2.Visible= true;
+                    }
+
+
+                    txtSecondaryUserName.Enabled = false;
+                }
+                else
+                {
+                    btnSecondaryUserPrintPassword.Visible = false;
+                    btnSecondaryUserGeneratePassword.Visible = false;
+                }
+            }
+            else
+            {
+                btnMainUserPrintPassword.Visible = false;
+                btnMainUserGeneratePassword.Visible = false;
+                btnSecondaryUserPrintPassword.Visible = false;
+                btnSecondaryUserGeneratePassword.Visible = false;
+            }
+        }
+
+        private bool isValidateRequiredDocuments()
+        {
+            if (grdCompanyRegistrationDocs.Rows.Count > 0)
+            {
+                List<EPAOzoneDAL.CompanyRegistrationAttachment> objRegistrationDocs = new List<EPAOzoneDAL.CompanyRegistrationAttachment>();
+                EPAOzoneDAL.CompanyRegistrationAttachment objRegistrationItem;
+
+                foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                {
+                    objRegistrationItem = new EPAOzoneDAL.CompanyRegistrationAttachment();
+
+                    objRegistrationItem.RegistrationDocumentID = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                    FileUpload fp = ((FileUpload)grv.FindControl("fupAttachDoc"));
+                    objRegistrationItem.FileName = fp.FileName;
+                    objRegistrationItem.Attachment = fp.FileBytes;
+                     
+                    System.Web.HttpPostedFile file = (System.Web.HttpPostedFile)(fp.PostedFile);
+                    if (file != null)
+                    {
+                        int iFileSize = file.ContentLength;
+
+                        int MaxAllowedFIlesize = Convert.ToInt32(Configuration.GetConfigurationValue(ConfigurationKey.MaxFileSizeInMB)) * 1000000;
+
+                        if (iFileSize > MaxAllowedFIlesize)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        protected void btnSave_Click(object sender, EventArgs e)
+        {
+
+            if (hdnAddEditMode.Value == "Add")
+                AddCompany();
+            else
+                UpdateCompany();
+
+        }
+
+        private void AddCompany()
+        {
+            try
+            {
+                if (!isValidateRequiredDocuments())
+                {
+                    ShowNotification(string.Format(Util.GetLocalizedValue("MaxFileSize", Util.ResourceFile.EPAMessage), Configuration.GetConfigurationValue(ConfigurationKey.MaxFileSizeInMB)), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    return;
+                }
+                var obj = new EPAOzoneDAL.DBcontext.Company();
+                obj.Title = txtCompanyNameEnglish.Text;
+                obj.NameArabic = txtCompanyNameArabi.Text;
+                obj.CivilID = txtCivilID.Text;
+                obj.FormalEmail = txtFormalEmail.Text;
+                obj.PhoneNumber = txtPhoneNumber.Text;
+                obj.Address = txtOfficeAddress.Text;
+                obj.CommercialRegNo = txtCommercialRegistrationNumber.Text;
+
+
+                //TODO
+                obj.CentralNumber = Convert.ToString(txtComCentralNumber.Text).Trim();
+                obj.LicIssueDate = Convert.ToString(hdnLicIssueDate.Value).Trim();
+                obj.LicExpiryDate = Convert.ToString(hdnLicEndDate.Value).Trim();
+
+                hdnCompanyID.Value = CompanyHelper.AddCompany(obj).ToString();
+                ViewState["CompanyName"] = txtCompanyNameEnglish.Text;
+                // ViewState["CompanyName"] = txtCompanyNameArabi.Text;
+                ViewState["CompanyCivilID"] = txtCivilID.Text;
+
+                if (hdnCompanyID.Value != null)
+                {
+                    hdnAddEditMode.Value = "Update";
+
+                    if (grdCompanyRegistrationDocs.Rows.Count > 0)
+                    {
+                        List<EPAOzoneDAL.CompanyRegistrationAttachment> objRegistrationDocs = new List<EPAOzoneDAL.CompanyRegistrationAttachment>();
+                        EPAOzoneDAL.CompanyRegistrationAttachment objRegistrationItem;
+
+                        foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                        {
+                            objRegistrationItem = new EPAOzoneDAL.CompanyRegistrationAttachment();
+
+                            objRegistrationItem.RegistrationDocumentID = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                            objRegistrationItem.FileName = ((FileUpload)grv.FindControl("fupAttachDoc")).FileName;
+                            objRegistrationItem.Attachment = ((FileUpload)grv.FindControl("fupAttachDoc")).FileBytes;
+
+                            objRegistrationDocs.Add(objRegistrationItem);
+                        }
+
+                        CompanyHelper.AddCompanyRegistrationAttachments(Convert.ToInt32(hdnCompanyID.Value), objRegistrationDocs);
+                    }
+
+                    var objCompanyUser = new EPAOzoneDAL.DBcontext.CompanyUser();
+
+                    objCompanyUser.CompanyId = Convert.ToInt32(hdnCompanyID.Value);//Company.GetCompanyByID(Convert.ToInt32(hdnCompanyID.Value));
+                    objCompanyUser.Title = txtMainUserNameEnglish.Text;
+                    objCompanyUser.NameArabic = txtMainUserNameArabic.Text;
+                    objCompanyUser.CivilID = txtMainUserCivilID.Text;
+                    objCompanyUser.Designation = txtMainUserDesignation.Text;
+                    objCompanyUser.MobileNumber = txtMainUserMobile.Text;
+                    objCompanyUser.Email = txtMainUserEmailID.Text;
+                    //objCompanyUser.PhoneNumber = txtMainUserLandline.Text;
+                    objCompanyUser.SerialNumber = Convert.ToString(txtMainUserSerialNumber.Text).Trim();
+                    string filename = string.Empty;
+                    byte[] bytesArray = null;
+
+                    UserCredential objUCred = CompanyHelper.AddCompanyUserwithNameandPassword(objCompanyUser, txtUserName.Text.Trim(), txtPassword.Text.Trim(), filename, bytesArray);
+                    ViewState["MainUserPassword"] = objUCred.Password;
+                    txtUserName.Text = objUCred.UserName;
+
+                    btnMainUserPrintPassword.Enabled = true;
+                    btnMainUserPrintPassword.Visible = true;
+                    btnMainUserGeneratePassword.Visible = true;
+
+                    Notification.SendSMSNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtMainUserMobile.Text);
+                    Notification.SendEmailNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtMainUserEmailID.Text);
+
+                    if (chkSecondaryUserDetails.Checked)
+                    {
+                        objCompanyUser = new EPAOzoneDAL.DBcontext.CompanyUser();
+
+                        objCompanyUser.CompanyId = Convert.ToInt32(hdnCompanyID.Value);
+                        objCompanyUser.Title = txtSecondaryUserNameEnglish.Text;
+                        objCompanyUser.NameArabic = txtSecondaryUserNameArabic.Text;
+                        objCompanyUser.CivilID = txtSecondaryUserCivilID.Text;
+                        objCompanyUser.Designation = txtSecondaryUserDesignation.Text;
+                        objCompanyUser.MobileNumber = txtSecondaryUserMobile.Text;
+                        objCompanyUser.Email = txtSecondaryUserEmailID.Text;
+                        // objCompanyUser.PhoneNumber = txtSecondaryUserLandline.Text;
+                        objCompanyUser.SerialNumber = Convert.ToString(txtSecondaryUserSerialNumber.Text).Trim();
+                        string Secondfilename = string.Empty;
+                        byte[] SecondbytesArray = null;
+
+                        objUCred = CompanyHelper.AddCompanyUserwithNameandPassword(objCompanyUser, txtSecondaryUserName.Text.Trim(), txtSecondaryPassword.Text.Trim(), Secondfilename, SecondbytesArray);
+                        ViewState["SecondaryUserPassword"] = objUCred.Password;
+                        txtSecondaryUserName.Text = objUCred.UserName;
+
+                        btnSecondaryUserPrintPassword.Enabled = true;
+                        btnSecondaryUserPrintPassword.Visible = true;
+                        btnSecondaryUserGeneratePassword.Visible = true;
+
+                        Notification.SendSMSNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtSecondaryUserMobile.Text);
+                        Notification.SendEmailNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtSecondaryUserEmailID.Text);
+
+                    }
+                }
+
+
+                BindRequiredAttachmentDocs(Convert.ToInt32(hdnCompanyID.Value));
+
+                lblOtherSetting.Visible = true;
+                lblNoOfViolation.Visible = true;
+                txtNoOfViolation.Visible = true;
+                chkStopOnlineService.Visible = true;
+                //  txtCompanyCode.Enabled = false;
+                txtPassword.Enabled = false;
+                txtConfirmPassword.Enabled = false;
+                txtSecondaryPassword.Enabled = false;
+                txtSecondaryConfirmPassword.Enabled = false;
+                rvfPassword.Enabled = false;
+                refConfirmPassword.Enabled = false;
+                rfvSecondaryPassword.Enabled = false;
+                rfvSecondaryConfirmPassword.Enabled = false;
+
+                lblPassword.Visible = false;
+                txtPassword.Visible = false;
+                lblConfirmPassword.Visible = false;
+                txtConfirmPassword.Visible = false;
+                lblSecondaryPassword.Visible = false;
+                lblSecondaryConfirmPassword.Visible = false;
+                txtSecondaryPassword.Visible = false;
+                txtSecondaryConfirmPassword.Visible = false;
+
+                btnMainUserGeneratePassword.Visible = false;
+                btnSecondaryUserGeneratePassword.Visible = false;
+
+                ShowNotification(Util.GetLocalizedValue("SaveSuccess", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Success, false);
+
+                // }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("CompanyDetailWebPart", "AddCompany", ex);
+            }
+        }
+
+        private void UpdateCompany()
+        {
+            try
+            {
+                //  txtCompanyCode.Enabled = false;
+                var obj = CompanyHelper.GetCompanyByID(Convert.ToInt32(hdnCompanyID.Value));
+
+                if (!isValidateRequiredDocuments())
+                {
+                    ShowNotification(string.Format(Util.GetLocalizedValue("MaxFileSize", Util.ResourceFile.EPAMessage), Configuration.GetConfigurationValue(ConfigurationKey.MaxFileSizeInMB)), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    return;
+                }
+
+                obj.Title = txtCompanyNameEnglish.Text;
+                obj.NameArabic = txtCompanyNameArabi.Text;
+                obj.CivilID = txtCivilID.Text;
+                obj.FormalEmail = txtFormalEmail.Text;
+                obj.PhoneNumber = txtPhoneNumber.Text;
+                obj.Address = txtOfficeAddress.Text;
+                obj.CommercialRegNo = txtCommercialRegistrationNumber.Text;
+                obj.ViolationsCount = string.IsNullOrEmpty(txtNoOfViolation.Text) ? (int?)null : Convert.ToInt32(txtNoOfViolation.Text);
+
+                //TODO
+                obj.CentralNumber = Convert.ToString(txtComCentralNumber.Text).Trim();
+                obj.LicIssueDate = Convert.ToString(hdnLicIssueDate.Value).Trim();
+                obj.LicExpiryDate = Convert.ToString(hdnLicEndDate.Value).Trim();
+
+                if (!String.IsNullOrEmpty(hdnChekcBoxOrigninalVlaue.Value))
+                {
+                    if (Convert.ToString(hdnChekcBoxOrigninalVlaue.Value) == "1" && (!chkStopOnlineService.Checked))
+                    {
+                        obj.IsBlockedManually = chkStopOnlineService.Checked;
+                        hdnChekcBoxOrigninalVlaue.Value = Convert.ToString(Convert.ToInt32(chkStopOnlineService.Checked));
+                    }
+                    else if (Convert.ToString(hdnChekcBoxOrigninalVlaue.Value) == "0" && (chkStopOnlineService.Checked))
+                    {
+                        obj.IsBlockedManually = chkStopOnlineService.Checked;
+                        hdnChekcBoxOrigninalVlaue.Value = Convert.ToString(Convert.ToInt32(chkStopOnlineService.Checked));
+                    }
+                }
+
+                hdnCompanyID.Value = CompanyHelper.UpdateCompany(obj).ToString();
+                ViewState["CompanyName"] = txtCompanyNameEnglish.Text;
+                //ViewState["CompanyName"] = txtCompanyNameArabi.Text;
+                ViewState["CompanyCivilID"] = txtCivilID.Text;
+
+                if (hdnCompanyID.Value != null)
+                {
+                    if (grdCompanyRegistrationDocs.Rows.Count > 0)
+                    {
+                        List<EPAOzoneDAL.CompanyRegistrationAttachment> objRegistrationDocs = new List<EPAOzoneDAL.CompanyRegistrationAttachment>();
+                        EPAOzoneDAL.CompanyRegistrationAttachment objRegistrationItem;
+                        ArrayList documentAttachmentsTemp = new ArrayList();
+                        if (ViewState["lstTempDelete"] != null)
+                        {
+                            documentAttachmentsTemp = (ArrayList)ViewState["lstTempDelete"];
+                        }
+                        foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                        {
+                            FileUpload fupAttachDoc = ((FileUpload)grv.FindControl("fupAttachDoc"));
+                            objRegistrationItem = new EPAOzoneDAL.CompanyRegistrationAttachment();
+
+                            if (documentAttachmentsTemp != null && documentAttachmentsTemp.Count > 0)
+                            {
+                                if (documentAttachmentsTemp.Contains(Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])))
+                                {
+                                    if (fupAttachDoc.HasFile)
+                                    {
+                                        objRegistrationItem.Attachment = fupAttachDoc.FileBytes;
+                                        objRegistrationItem.RegistrationDocumentID = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                                        objRegistrationItem.FileName = fupAttachDoc.FileName;
+                                        objRegistrationDocs.Add(objRegistrationItem);
+                                    }
+
+                                }
+                                else
+                                {
+                                    objRegistrationItem.Attachment = null;
+                                    objRegistrationItem.RegistrationDocumentID = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                                    objRegistrationItem.FileName = fupAttachDoc.FileName;
+                                    objRegistrationDocs.Add(objRegistrationItem);
+                                }
+                            }
+                            else
+                            {
+                                if (fupAttachDoc.HasFile)
+                                {
+                                    objRegistrationItem.Attachment = fupAttachDoc.FileBytes;
+                                    objRegistrationItem.RegistrationDocumentID = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                                    objRegistrationItem.FileName = fupAttachDoc.FileName;
+                                    objRegistrationDocs.Add(objRegistrationItem);
+
+                                }
+                                else
+                                {
+                                    objRegistrationItem.Attachment = null;
+                                    objRegistrationItem.RegistrationDocumentID = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                                    objRegistrationItem.FileName = fupAttachDoc.FileName;
+                                    objRegistrationDocs.Add(objRegistrationItem);
+                                }
+                            }
+
+                        }
+
+                        CompanyHelper.AddCompanyRegistrationAttachments(Convert.ToInt32(hdnCompanyID.Value), objRegistrationDocs);
+                    }
+                    //Clear View State
+                    ViewState["lstTempDelete"] = null;
+                    // List<CompanyUserI> lstCompanyUsers = new List<CompanyUserItem>();
+                    var lstCompanyUsers = CompanyHelper.GetCompanyUsersByCompanyID(Convert.ToInt32(hdnCompanyID.Value));
+
+
+
+                    var objCompanyUser = new EPAOzoneDAL.DBcontext.CompanyUser();
+
+                    if (lstCompanyUsers.Count > 0)
+                        objCompanyUser = lstCompanyUsers[0];
+                    else
+                    {
+                        //objCompanyUser.Company = new CompanyItem();
+                        objCompanyUser.CompanyId = obj.Id;
+                    }
+
+                    objCompanyUser.Title = txtMainUserNameEnglish.Text;
+                    objCompanyUser.NameArabic = txtMainUserNameArabic.Text;
+                    objCompanyUser.CivilID = txtMainUserCivilID.Text;
+                    objCompanyUser.Designation = txtMainUserDesignation.Text;
+                    objCompanyUser.MobileNumber = txtMainUserMobile.Text;
+                    objCompanyUser.Email = txtMainUserEmailID.Text;
+                    // objCompanyUser.PhoneNumber = txtMainUserLandline.Text;
+                    objCompanyUser.SerialNumber = Convert.ToString(txtMainUserSerialNumber.Text).Trim();
+                    
+
+                    if (lstCompanyUsers.Count > 0)
+                    {
+                        string filename = string.Empty;
+                        byte[] bytesArray = null;
+
+                        CompanyHelper.UpdateCompanyUser(objCompanyUser, filename, bytesArray);
+                    }
+                    else
+                    {
+                    
+                        bool checkMainEmailID = CompanyHelper.IsEmailAvailable(txtMainUserEmailID.Text, null);
+                        UserCredential objUCred = CompanyHelper.AddCompanyUser(objCompanyUser);
+                        if (objUCred != null)
+                        {
+                            ViewState["MainUserPassword"] = objUCred.Password;
+
+                            //txtUserName.Enabled = true;
+                            txtUserName.Text = objUCred.UserName;
+                            txtUserName.Enabled = false;
+
+                            btnMainUserPrintPassword.Enabled = true;
+                            btnMainUserPrintPassword.Visible = true;
+                            btnMainUserGeneratePassword.Visible = true;
+
+                            Notification.SendSMSNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtMainUserMobile.Text);
+                            Notification.SendEmailNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtMainUserEmailID.Text);
+
+                        }
+                    }
+
+                    if (chkSecondaryUserDetails.Checked)
+                    {
+                        objCompanyUser = new EPAOzoneDAL.DBcontext.CompanyUser();
+
+                        if (lstCompanyUsers.Count > 1)
+                        {
+                            objCompanyUser = lstCompanyUsers[1];
+                        }
+                        else
+                        {
+                            // objCompanyUser.Company = new CompanyItem();
+                            objCompanyUser.CompanyId = obj.Id;
+                        }
+
+                        objCompanyUser.Title = txtSecondaryUserNameEnglish.Text;
+                        objCompanyUser.NameArabic = txtSecondaryUserNameArabic.Text;
+                        objCompanyUser.CivilID = txtSecondaryUserCivilID.Text;
+                        objCompanyUser.Designation = txtSecondaryUserDesignation.Text;
+                        objCompanyUser.MobileNumber = txtSecondaryUserMobile.Text;
+                        objCompanyUser.Email = txtSecondaryUserEmailID.Text;
+                        // objCompanyUser.PhoneNumber = txtSecondaryUserLandline.Text;
+                        objCompanyUser.SerialNumber = Convert.ToString(txtSecondaryUserSerialNumber.Text).Trim();
+
+                        if (lstCompanyUsers.Count > 1)
+                        {
+                            bool checkSecondEmailID = CompanyHelper.IsEmailAvailable(txtSecondaryUserEmailID.Text, objCompanyUser.Id);
+
+                            string filename1 = string.Empty;
+                            byte[] bytesArray1 = null;
+
+                            CompanyHelper.UpdateCompanyUser(objCompanyUser, filename1, bytesArray1);
+                        }
+                        else
+                        {
+                            bool checkSecondEmailID = CompanyHelper.IsEmailAvailable(txtSecondaryUserEmailID.Text, null);
+                            objCompanyUser.UserAccountName= txtSecondaryUserName.Text.Trim();
+                            UserCredential objUCred = CompanyHelper.AddCompanyUser(objCompanyUser);
+                            if (objUCred != null)
+                            {
+                                ViewState["SecondaryUserPassword"] = objUCred.Password;
+
+                                //txtSecondaryUserName.Enabled = true;
+                                txtSecondaryUserName.Text = objUCred.UserName;
+                                txtSecondaryUserName.Enabled = false;
+
+                                btnSecondaryUserPrintPassword.Enabled = true;
+                                btnSecondaryUserPrintPassword.Visible = true;
+                                btnSecondaryUserGeneratePassword.Visible = true;
+
+                                Notification.SendSMSNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtSecondaryUserMobile.Text);
+                                Notification.SendEmailNotification(MessageCode.NewUserAccount, "##User##=" + objCompanyUser.NameArabic + ";##UserName##=" + objUCred.UserName + ";##Password##=" + objUCred.Password, txtSecondaryUserEmailID.Text);
+
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (lstCompanyUsers.Count > 1)
+                        {
+                            CompanyHelper.DeleteSecondaryUser(Convert.ToInt32(hdnCompanyID.Value));
+                            // Clean Control
+                            txtSecondaryUserNameArabic.Text = string.Empty;
+                            txtSecondaryUserNameEnglish.Text = string.Empty;
+                            txtSecondaryUserCivilID.Text = string.Empty;
+                            txtSecondaryUserDesignation.Text = string.Empty;
+                            txtSecondaryUserMobile.Text = string.Empty;
+                            txtSecondaryUserEmailID.Text = string.Empty;
+                            //   txtSecondaryUserLandline.Text = string.Empty;
+                            txtSecondaryUserName.Text = string.Empty;
+                            // Company.DeleteListItemAttachmnet(hplSecondaryUserCivilIDCopy.NavigateUrl, Convert.ToInt32(hdnSecondaryUserCivilIDCopy.Value));
+                        }
+                    }
+
+
+                }
+
+                BindRequiredAttachmentDocs(Convert.ToInt32(hdnCompanyID.Value));
+                GetCompanyDetails();
+                //ShowNotification(Util.GetLocalizedValue("SaveSuccess", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Success, false);
+                ShowNotificationAndRedirect(Util.GetLocalizedValue("SaveSuccess", Util.ResourceFile.EPAMessage), NotificationTypes.Success, HttpContext.Current.Request.RawUrl);
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("CompanyDetailWebPart", "UpdateCompany", ex);
+            }
+        }
+
+        private void UpdateCivilIDCopies(List<EPAOzoneDAL.DBcontext.CompanyUser> companyUsers)
+        {
+            try
+            {
+                if (ViewState["CompanyUsersCiviLIDCopyDelete"] != null)
+                {
+                    Dictionary<int, string> UserCiviLIDCopyDeleteAttachments = new Dictionary<int, string>();
+                    UserCiviLIDCopyDeleteAttachments = (Dictionary<int, string>)ViewState["CompanyUsersCiviLIDCopyDelete"];
+                    foreach (KeyValuePair<int, string> userCivilIDDelete in UserCiviLIDCopyDeleteAttachments)
+                    {
+                        CompanyHelper.DeleteListItemAttachmnet(userCivilIDDelete.Value, userCivilIDDelete.Key);
+                        // do something with entry.Value or entry.Key
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("CompanyDetailWebPart", "UpdateCivilIDCopies", ex);
+            }
+        }
+
+        private void DisableAllControls(bool flag)
+        {
+            txtComCentralNumber.Enabled = flag;
+            //  txtCompanyNameArabi.Enabled = flag;
+            txtCompanyNameEnglish.Enabled = flag;
+            //  txtCompanyCode.Enabled = flag;
+            txtCivilID.Enabled = flag;
+            txtPhoneNumber.Enabled = flag;
+            txtFormalEmail.Enabled = flag;
+            txtOfficeAddress.Enabled = flag;
+
+            txtMainUserNameArabic.Enabled = flag;
+            txtMainUserNameEnglish.Enabled = flag;
+            txtMainUserCivilID.Enabled = flag;
+            txtMainUserDesignation.Enabled = flag;
+            txtMainUserMobile.Enabled = flag;
+            txtMainUserEmailID.Enabled = flag;
+            // txtMainUserLandline.Enabled = flag;
+            txtUserName.Enabled = flag;
+            txtMainUserSerialNumber.Enabled = flag;
+
+            txtSecondaryUserSerialNumber.Enabled = flag;
+
+            txtSecondaryUserCivilID.Enabled = flag;
+            txtSecondaryUserDesignation.Enabled = flag;
+            txtSecondaryUserMobile.Enabled = flag;
+            txtSecondaryUserEmailID.Enabled = flag;
+            //  txtSecondaryUserLandline.Enabled = flag;
+            txtSecondaryUserName.Enabled = flag;
+
+
+            chkSecondaryUserDetails.Enabled = flag;
+            chkStopOnlineService.Enabled = flag;
+            txtNoOfViolation.Enabled = flag;
+
+        }
+        private void EnableAllControls(bool flag, bool flag2 = false)
+        {
+            txtComCentralNumber.Enabled = flag;
+            //  txtCompanyNameArabi.Enabled = flag;
+            txtCompanyNameEnglish.Enabled = flag;
+            //  txtCompanyCode.Enabled = flag;
+            txtCivilID.Enabled = flag;
+            txtPhoneNumber.Enabled = flag;
+            txtFormalEmail.Enabled = flag;
+            txtOfficeAddress.Enabled = flag;
+
+            txtMainUserCivilID.Enabled = flag;
+            txtMainUserDesignation.Enabled = flag;
+            txtMainUserMobile.Enabled = flag;
+            txtMainUserEmailID.Enabled = flag;
+
+            txtMainUserSerialNumber.Enabled = flag;
+
+            txtSecondaryUserSerialNumber.Enabled = flag2;
+
+            txtSecondaryUserCivilID.Enabled = flag2;
+            txtSecondaryUserDesignation.Enabled = flag2;
+            txtSecondaryUserMobile.Enabled = flag2;
+            txtSecondaryUserEmailID.Enabled = flag2;
+
+            chkSecondaryUserDetails.Enabled = flag;
+
+            lblRegDocs.Visible = false;
+            blsDocuments.Visible = false;
+        }
+
+        private void ViewCompanyDetails()
+        {
+            #region disable Controls and Hide
+            txtPassword.Visible = false;
+            lblPassword.Visible = false;
+            txtConfirmPassword.Visible = false;
+            lblConfirmPassword.Visible = false;
+            txtSecondaryPassword.Visible = false;
+            lblSecondaryPassword.Visible = false;
+            txtSecondaryConfirmPassword.Visible = false;
+            lblSecondaryConfirmPassword.Visible = false;
+
+            #endregion
+            int CompanyID = Convert.ToInt32(hdnCompanyID.Value);
+
+            //Populate company details
+            var objCom = CompanyHelper.GetCompanyByID(CompanyID);
+
+            if (objCom.CompanyTypeID==1)
+            {
+
+                txtCompanyNameArabi.Text = objCom.NameArabic;
+                txtCompanyNameEnglish.Text = objCom.Title;
+                txtCivilID.Text = objCom.CivilID;
+                txtFormalEmail.Text = objCom.FormalEmail;
+                txtPhoneNumber.Text = objCom.PhoneNumber;
+                txtOfficeAddress.Text = objCom.Address;
+                //  txtCompanyCode.Text = objCom.CompanyCode;
+                txtCommercialRegistrationNumber.Text = objCom.CommercialRegNo;
+                txtCommercialRegistrationNumber.Enabled = false;
+                txtNoOfViolation.Text = objCom.ViolationsCount.ToString();
+                ViewState["CompanyName"] = objCom.Title;
+                //ViewState["CompanyName"] = objCom.NameArabic;
+                ViewState["CompanyCivilID"] = objCom.CivilID;
+
+                txtComCentralNumber.Text = objCom.CentralNumber;
+                hdnLicIssueDate.Value = txtLicIssuedDate.Text = objCom.LicIssueDate;
+                hdnLicEndDate.Value = txtLicExpiryDate.Text = objCom.LicExpiryDate;
+                DivPrivateCompany.Visible=true;
+                cblCompanytType.SelectedValue="1";
+                DivGovSector.Visible=false;
+            }
+            else
+            {
+                cblCompanytType.SelectedValue="2";
+                txtGovNameAr.Text = objCom.NameArabic;
+                txtGovNameEn.Text = objCom.Title;
+
+                DivGovSector.Visible=true;
+                DivPrivateCompany.Visible=false;
+            }
+
+
+            chkStopOnlineService.Checked = (Convert.ToBoolean(objCom.IsBlockedManually) == true) ? true : Convert.ToBoolean(objCom.IsBlockedBySystem);
+
+            if (grdCompanyRegistrationDocs.Rows.Count > 0)
+            {
+                Dictionary<int, string> documentAttachments = new Dictionary<int, string>();
+                documentAttachments = CompanyHelper.GetCompanyRegistrationAttachments(CompanyID);
+
+                if (documentAttachments.Count > 0)
+                {
+                    grdCompanyRegistrationDocs.Columns[1].Visible = false;
+                    grdCompanyRegistrationDocs.Columns[2].Visible = true;
+
+                    foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                    {
+
+                        if (documentAttachments.ContainsKey(Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])))
+                        {
+                            var value = documentAttachments[Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])];
+
+                            string url = "";
+                            if (!string.IsNullOrWhiteSpace(value)&& value.Contains("OzoneFile"))
+                            {
+                                url= FileServerHelper.GetSecureURL(value);//FileServerHelper.CDNURL+ value;
+                            }
+                            else
+                            {
+                                url= "~/"+ value;
+                            }
+
+                            ((HyperLink)grv.FindControl("hplViewDocs")).Visible = true;
+                            ((HyperLink)grv.FindControl("hplViewDocs")).NavigateUrl =url;
+                        }
+                        else
+                            grv.Visible = false;
+                    }
+                }
+            }
+
+
+            var lstCompanyUsers = CompanyHelper.GetCompanyUsersByCompanyID(CompanyID);
+
+            if (lstCompanyUsers.Count > 0)
+            {
+                //Populate main user detail
+                EPAOzoneDAL.DBcontext.CompanyUser objUser1 = lstCompanyUsers[0];
+
+                txtMainUserNameArabic.Text = objUser1.NameArabic;
+                txtMainUserNameEnglish.Text = objUser1.Title;
+                txtMainUserCivilID.Text = objUser1.CivilID;
+                txtMainUserDesignation.Text = objUser1.Designation;
+                txtMainUserMobile.Text = objUser1.MobileNumber;
+                txtMainUserEmailID.Text = objUser1.Email;
+                // txtMainUserLandline.Text = objUser1.PhoneNumber;
+                txtUserName.Text = objUser1.UserAccountName;
+                txtMainUserSerialNumber.Text = objUser1.SerialNumber;
+                // string civivlUrl = Company.GetAttachmentUrlCompanyUserListItemID(Convert.ToInt32(objUser1.Id.Value));
+                hdnMaiuserListItemID.Value = Convert.ToString(objUser1.Id);
+
+
+                hlCivilIdCopy1.Visible=false;
+                hlCivilCopy2.Visible=false;
+                if (!string.IsNullOrWhiteSpace(objUser1.CivilIdFilePath))
+                {
+
+                    hlCivilIdCopy1.NavigateUrl = FileServerHelper.GetSecureURL(objUser1.CivilIdFilePath);//FileServerHelper.CDNURL+objUser1.CivilIdFilePath;
+                    hlCivilIdCopy1.Visible= true;
+
+                }
+
+                if (lstCompanyUsers.Count > 1)
+                {
+                    objUser1 = lstCompanyUsers[1];
+
+                    chkSecondaryUserDetails.Checked = true;
+                    txtSecondaryUserNameArabic.Text = objUser1.NameArabic;
+                    txtSecondaryUserNameEnglish.Text = objUser1.Title;
+                    txtSecondaryUserCivilID.Text = objUser1.CivilID;
+                    txtSecondaryUserDesignation.Text = objUser1.Designation;
+                    txtSecondaryUserMobile.Text = objUser1.MobileNumber;
+                    txtSecondaryUserEmailID.Text = objUser1.Email;
+                    // txtSecondaryUserLandline.Text = objUser1.PhoneNumber;
+                    txtSecondaryUserName.Text = objUser1.UserAccountName;
+                    txtSecondaryUserSerialNumber.Text = objUser1.SerialNumber;
+                    // civivlUrl = Company.GetAttachmentUrlCompanyUserListItemID(Convert.ToInt32(objUser1.Id.Value));
+                    hdnSecondaryUserListItemID.Value = Convert.ToString(objUser1.Id);
+
+                    hlCivilCopy2.Visible=false;
+                    if (!string.IsNullOrWhiteSpace(objUser1.CivilIdFilePath))
+                    {
+
+                        hlCivilCopy2.NavigateUrl=FileServerHelper.GetSecureURL(objUser1.CivilIdFilePath);//FileServerHelper.CDNURL+objUser1.CivilIdFilePath;
+                        hlCivilCopy2.Visible= true;
+
+                    }
+
+                }
+
+
+            }
+
+
+            lblOtherSetting.Visible = true;
+            lblNoOfViolation.Visible = true;
+            txtNoOfViolation.Visible = true;
+            chkStopOnlineService.Visible = true;
+            BindRequestStatusHistoryByCompany();
+
+            DisableAllControls(false);
+            btnSave.Visible = false;
+            btnCancel.Visible = true;
+
+            if (string.IsNullOrEmpty(objCom.CentralNumber) || (lstCompanyUsers.Count > 0 && string.IsNullOrEmpty(lstCompanyUsers[0].SerialNumber)) || (lstCompanyUsers.Count > 1 && string.IsNullOrEmpty(lstCompanyUsers[1].SerialNumber)))
+            {
+                bool flag2 = lstCompanyUsers.Count > 1 ? true : false;
+                EnableAllControls(true, flag2);
+                btnSave.Visible = true;
+                hdnAddEditMode.Value = "Update";
+                BindRequiredAttachmentDocsCompany(Convert.ToInt32(hdnCompanyID.Value));
+            }
+        }
+
+        protected void btnMainUserPrintPassword_Click(object sender, EventArgs e)
+        {
+            if (ViewState["MainUserPassword"] != null)
+            {
+                string companyName = ViewState["CompanyName"] != null ? ViewState["CompanyName"].ToString() : txtCompanyNameEnglish.Text;
+                //string companyName = ViewState["CompanyName"] != null ? ViewState["CompanyName"].ToString() : txtCompanyNameArabi.Text;
+                string companyCivilID = ViewState["CompanyCivilID"] != null ? ViewState["CompanyCivilID"].ToString() : txtCivilID.Text;
+
+                Page.Session["CompanyUserPassword"] = CreateSourceStructure(txtUserName.Text, ViewState["MainUserPassword"].ToString(), companyName, companyCivilID, true);
+                ScriptManager.RegisterStartupScript(this.Page, this.GetType(), "OpenPrintPassword", "OpenDialog2('PrintComapnyUserPassword.aspx', ' ', 700,600);", true);
+                // PrintPassword(txtUserName.Text, ViewState["MainUserPassword"].ToString(), companyName, companyCivilID, true);
+            }
+        }
+
+        protected void btnMainUserGeneratePassword_Click(object sender, EventArgs e)
+        {
+
+            btnMainUserPrintPassword.Enabled = true;
+            ViewState["MainUserPassword"] = Security.ResetUserPassword(txtUserName.Text);
+            ShowNotification(Util.GetLocalizedValue("passwordgeneratesuccess", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Success, false);
+            GregorianCalendar enCalendar = new GregorianCalendar();
+            string strDate = String.Format("{0}/{1}/{2} {3}:{4}:{5}", enCalendar.GetMonth(DateTime.Now), enCalendar.GetDayOfMonth(DateTime.Now), enCalendar.GetYear(DateTime.Now), enCalendar.GetHour(DateTime.Now), enCalendar.GetMinute(DateTime.Now), enCalendar.GetSecond(DateTime.Now));
+            Notification.SendSMSNotification(MessageCode.ResetPasswordByAdmin, "##User##=" + txtMainUserNameArabic.Text + ";##UserName##=" + txtUserName.Text + ";##Password##=" + ViewState["MainUserPassword"] + ";##ChangeDate##=" + strDate, txtMainUserMobile.Text);
+            Notification.SendEmailNotification(MessageCode.ResetPasswordByAdmin, "##User##=" + txtMainUserNameArabic.Text + ";##UserName##=" + txtUserName.Text + ";##Password##=" + ViewState["MainUserPassword"] + ";##ChangeDate##=" + strDate, txtMainUserEmailID.Text);
+
+        }
+
+        protected void btnSecondaryUserPrintPassword_Click(object sender, EventArgs e)
+        {
+            if (ViewState["SecondaryUserPassword"] != null)
+            {
+                string companyName = ViewState["CompanyName"] != null ? ViewState["CompanyName"].ToString() : txtCompanyNameEnglish.Text;
+                //string companyName = ViewState["CompanyName"] != null ? ViewState["CompanyName"].ToString() : txtCompanyNameArabi.Text;
+                string companyCivilID = ViewState["CompanyCivilID"] != null ? ViewState["CompanyCivilID"].ToString() : txtCivilID.Text;
+
+                Page.Session["CompanyUserPassword"] = CreateSourceStructure(txtSecondaryUserName.Text, ViewState["SecondaryUserPassword"].ToString(), companyName, companyCivilID, false);
+                ScriptManager.RegisterStartupScript(this.Page, this.GetType(), "OpenPrintPassword", "OpenDialog2('PrintComapnyUserPassword.aspx', ' ', 700,600);", true);
+
+                //PrintPassword(txtSecondaryUserName.Text, ViewState["SecondaryUserPassword"].ToString(), companyName, companyCivilID, false);
+            }
+        }
+
+        protected void btnSecondaryUserGeneratePassword_Click(object sender, EventArgs e)
+        {
+            btnSecondaryUserPrintPassword.Enabled = true;
+
+            GregorianCalendar enCalendar = new GregorianCalendar();
+            string strDate = String.Format("{0}/{1}/{2} {3}:{4}:{5}", enCalendar.GetMonth(DateTime.Now), enCalendar.GetDayOfMonth(DateTime.Now), enCalendar.GetYear(DateTime.Now), enCalendar.GetHour(DateTime.Now), enCalendar.GetMinute(DateTime.Now), enCalendar.GetSecond(DateTime.Now));
+
+            ViewState["SecondaryUserPassword"] = Security.ResetUserPassword(txtSecondaryUserName.Text);
+            ShowNotification(Util.GetLocalizedValue("passwordgeneratesuccess", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Success, false);
+            Notification.SendSMSNotification(MessageCode.SecondaryUserPasswordResetByAdmin, "##User##=" + txtSecondaryUserNameArabic.Text + ";##UserName##=" + txtSecondaryUserName.Text + ";##Password##=" + ViewState["SecondaryUserPassword"] + ";##ChangeDate##=" + strDate, txtSecondaryUserMobile.Text);
+            Notification.SendEmailNotification(MessageCode.SecondaryUserPasswordResetByAdmin, "##User##=" + txtSecondaryUserNameArabic.Text + ";##UserName##=" + txtSecondaryUserName.Text + ";##Password##=" + ViewState["SecondaryUserPassword"] + ";##ChangeDate##=" + strDate, txtSecondaryUserEmailID.Text);
+
+        }
+
+
+
+
+
+        private static DataTable CreateSourceStructure(string userName, string password, string company, string civilID, bool isPrimary)
+        {
+            DataTable dataSource = new DataTable();
+            DataColumn dcName = new DataColumn("UserName");
+            dataSource.Columns.Add(dcName);
+
+            DataColumn dcPassword = new DataColumn("Password");
+            dataSource.Columns.Add(dcPassword);
+
+            DataColumn dcCompanyName = new DataColumn("CompanyName");
+            dataSource.Columns.Add(dcCompanyName);
+
+            DataColumn dcCompanyCivilID = new DataColumn("CivilID");
+            dataSource.Columns.Add(dcCompanyCivilID);
+
+            DataColumn dcSubTitle = new DataColumn("SubTitle");
+            dataSource.Columns.Add(dcSubTitle);
+
+            DataRow dr = dataSource.NewRow();
+            dr["UserName"] = userName;
+            dr["Password"] = password;
+            dr["CompanyName"] = company;
+            dr["CivilID"] = civilID;
+            dr["SubTitle"] = isPrimary ? Util.GetLocalizedValue("MainUserDetailHeader", Util.ResourceFile.EPAResource) : Util.GetLocalizedValue("SecondaryUserDetailHeader", Util.ResourceFile.EPAResource);
+            dataSource.Rows.Add(dr);
+            return dataSource;
+        }
+
+        protected void btnCancel_Click(object sender, EventArgs e)
+        {
+            if (Page.Session["SourceMode"] != null)
+            {
+                Page.Session["SourceMode"] = null;
+
+                Page.Response.Redirect("CompanySearch.aspx");
+            }
+            else
+            {
+                Page.Session["SourceMode"] = null;
+                //Page.Session["CompanyID"] = null;
+                Page.Response.Redirect(SPContext.Current.Site.Url);
+            }
+        }
+
+
+        protected void chkSecondaryUserDetails_CheckedChanged(object sender, EventArgs e)
+        {
+            //
+
+            LoadDoc(true);
+
+            if (chkSecondaryUserDetails.Checked)
+            {
+
+                txtSecondaryUserCivilID.Enabled = true;
+                txtSecondaryUserDesignation.Enabled = true;
+                txtSecondaryUserMobile.Enabled = true;
+                txtSecondaryUserEmailID.Enabled = true;
+                // txtSecondaryUserLandline.Enabled = true;
+                rfvSecondaryUserNameArabic.Enabled = true;
+                rfvSecondaryUserNameEnglish.Enabled = true;
+                rfvSecondaryUserCivilID.Enabled = true;
+                rfvSecondaryUserDesignation.Enabled = true;
+                rfvSecondaryUserMobile.Enabled = true;
+                rfvSecondaryUserEmailID.Enabled = true;
+                // rfvSecondaryUserLandline.Enabled = true;
+                txtSecondaryUserSerialNumber.Enabled = true;
+
+                txtSecondaryUserName.Enabled = true;
+                txtSecondaryPassword.Enabled = true;
+                txtSecondaryConfirmPassword.Enabled = true;
+                rfvSecondaryUserName.Enabled = true;
+                rfvSecondaryConfirmPassword.Enabled = true;
+                rfvSecondaryPassword.Enabled = true;
+                cfvSecondaryConfirmPassword.Enabled = true;
+            }
+            else
+            {
+                txtSecondaryUserNameArabic.Enabled = false;
+                txtSecondaryUserNameEnglish.Enabled = false;
+                txtSecondaryUserCivilID.Enabled = false;
+                txtSecondaryUserDesignation.Enabled = false;
+                txtSecondaryUserMobile.Enabled = false;
+                txtSecondaryUserEmailID.Enabled = false;
+
+                if (this.Page.Request.QueryString["cid"] == null)
+                {
+                    txtSecondaryUserNameArabic.Text = string.Empty;
+                    txtSecondaryUserNameEnglish.Text = string.Empty;
+                    txtSecondaryUserCivilID.Text = string.Empty;
+                    txtSecondaryUserDesignation.Text = string.Empty;
+                    txtSecondaryUserMobile.Text = string.Empty;
+                    txtSecondaryUserEmailID.Text = string.Empty;
+                    //  txtSecondaryUserLandline.Text = string.Empty;
+                }
+                rfvSecondaryUserNameArabic.Enabled = false;
+                rfvSecondaryUserNameEnglish.Enabled = false;
+                rfvSecondaryUserCivilID.Enabled = false;
+                rfvSecondaryUserDesignation.Enabled = false;
+                rfvSecondaryUserMobile.Enabled = false;
+                rfvSecondaryUserEmailID.Enabled = false;
+
+            }
+
+        }
+
+
+        /// <summary>
+        /// Shows the notification.
+        /// </summary>
+        /// <param name="notificationCode">The notification code.</param>
+        private void ShowNotification(string message, EPAOzoneDAL.Enumerations.NotificationTypes notificationType, bool closeWindow)
+        {
+            ScriptManager.RegisterStartupScript(this.Page, this.GetType(), "notify", Util.GetNotification(message, notificationType, closeWindow), true);
+        }
+
+        private void ShowNotificationAndRedirect(string message, EPAOzoneDAL.Enumerations.NotificationTypes notificationType, string redirectionUrl)
+        {
+            ScriptManager.RegisterStartupScript(this.Page, this.GetType(), "notify", Util.GetNotificationWithRedirection(message, notificationType, redirectionUrl), true);
+        }
+
+        protected void rptViewer_Load(object sender, EventArgs e)
+        {
+        }
+
+        private void LoadControls()
+        {
+            try
+            {
+
+                cblCompanytType.DataSource = CompanyRequestHelper.GetTypes();
+                if (Util.IsCurrentCultureArabic())
+                    cblCompanytType.DataTextField = "Name";
+                else
+                    cblCompanytType.DataTextField = "NameEn";
+                cblCompanytType.DataValueField = "Id";
+                cblCompanytType.DataBind();
+
+
+                LoadDoc();
+
+            }
+            catch { }
+        }
+
+        private void LoadDoc(bool IsLoadOld = false)
+        {
+
+            var obj = CompanyHelper.GetCompanyRegistrationDocuments();
+            obj = obj.Where(x => x.Order != 2).ToList();
+            if (!chkSecondaryUserDetails.Checked)
+            {
+                obj=  obj.Where(x => x.Order != 5).ToList();
+            }
+            grdCompanyRegistrationDocs.DataSource = obj;
+            grdCompanyRegistrationDocs.DataBind();
+            if (IsLoadOld)
+            {
+                var CompanyID = Convert.ToInt32(hdnCompanyID.Value);
+                BindRequiredAttachmentDocs(CompanyID);
+            }
+        }
+
+        private void BindRequiredAttachmentDocs(int CompanyID)
+        {
+
+            if (grdCompanyRegistrationDocs.Rows.Count > 0)
+            {
+                try
+                {
+                    Dictionary<int, string> documentAttachments = new Dictionary<int, string>();
+                    documentAttachments = CompanyHelper.GetCompanyRegistrationAttachments(CompanyID);
+
+                    if (documentAttachments.Count > 0)
+                    {
+                        grdCompanyRegistrationDocs.Columns[2].Visible = true;
+                        grdCompanyRegistrationDocs.Columns[3].Visible = true;
+
+                        if (Security.IsUserInGroup(Security.SecurityGroups.EPAEmployees, SPContext.Current.Web.CurrentUser.ID)
+                                    || Security.IsUserInGroup(Security.SecurityGroups.EPADivisionHeads, SPContext.Current.Web.CurrentUser.ID))
+                            grdCompanyRegistrationDocs.Columns[3].Visible = true;
+                        ArrayList documentAttachmentsTemp = new ArrayList();
+                        if (ViewState["lstTempDelete"] != null)
+                        {
+                            documentAttachmentsTemp = (ArrayList)ViewState["lstTempDelete"];
+                        }
+                        foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                        {
+                            RequiredFieldValidator rfvDocument = ((RequiredFieldValidator)grv.FindControl("rfvDocument"));
+                            //  rfvDocument.Text = strValMsg;
+                            if (documentAttachments.ContainsKey(Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])))
+                            {
+
+                                int RowIndex = Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"]);
+                                var value = documentAttachments[RowIndex];
+                                string url = "";
+                                if (!string.IsNullOrWhiteSpace(value)&& value.Contains("OzoneFile"))
+                                {
+                                    url= FileServerHelper.GetSecureURL(value);//FileServerHelper.CDNURL+ value;
+                                }
+                                else
+                                {
+                                    url= "~/"+ value;
+                                }
+                                if (documentAttachmentsTemp != null && documentAttachmentsTemp.Count > 0)
+                                {
+                                    if (!documentAttachmentsTemp.Contains(Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])))
+                                    {
+
+                                        rfvDocument.Enabled = false;
+                                        ((HyperLink)grv.FindControl("hplViewDocs")).Visible = true;
+                                        ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = true;
+                                        ((HyperLink)grv.FindControl("hplViewDocs")).NavigateUrl =url;
+
+                                    }
+                                    else
+                                    {
+                                        if (Convert.ToBoolean(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["IsRequired"]))
+                                        {
+                                            rfvDocument.Enabled = true;
+                                            ((HyperLink)grv.FindControl("hplViewDocs")).Visible = false;
+                                            ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = false;
+                                        }
+                                        else
+                                        {
+                                            rfvDocument.Enabled = false;
+                                            ((HyperLink)grv.FindControl("hplViewDocs")).Visible = false;
+                                            ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = false;
+                                        }
+
+                                    }
+
+                                }
+                                else
+                                {
+                                    rfvDocument.Enabled = false;
+                                    ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = true;
+                                    ((HyperLink)grv.FindControl("hplViewDocs")).Visible = true;
+                                    ((HyperLink)grv.FindControl("hplViewDocs")).NavigateUrl = url;
+                                }
+
+                            }
+                            else
+                            {
+                                //  rfvDocument.Enabled = false;
+                                ((HyperLink)grv.FindControl("hplViewDocs")).Visible = false;
+                                ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = false;
+
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ExceptionLogger.LogException("CompanyDetailWebPart", "BindRequiredAttachmentDocs", ex);
+                }
+            }
+        }
+        private void BindRequiredAttachmentDocsCompany(int CompanyID)
+        {
+
+            if (grdCompanyRegistrationDocs.Rows.Count > 0)
+            {
+                try
+                {
+                    Dictionary<int, string> documentAttachments = new Dictionary<int, string>();
+                    documentAttachments = CompanyHelper.GetCompanyRegistrationAttachments(CompanyID);
+
+                    if (documentAttachments.Count > 0)
+                    {
+                        grdCompanyRegistrationDocs.Columns[1].Visible = true;
+                        grdCompanyRegistrationDocs.Columns[2].Visible = true;
+                        grdCompanyRegistrationDocs.Columns[3].Visible = true;
+
+
+                        ArrayList documentAttachmentsTemp = new ArrayList();
+                        if (ViewState["lstTempDelete"] != null)
+                        {
+                            documentAttachmentsTemp = (ArrayList)ViewState["lstTempDelete"];
+                        }
+                        foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                        {
+                            RequiredFieldValidator rfvDocument = ((RequiredFieldValidator)grv.FindControl("rfvDocument"));
+
+                           
+
+                            //  rfvDocument.Text = strValMsg;
+                            if (documentAttachments.ContainsKey(Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])))
+                            {
+
+                                var value = documentAttachments[Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])];
+                                string url = "";
+                                if (!string.IsNullOrWhiteSpace(value)&& value.Contains("OzoneFile"))
+                                {
+                                    url= FileServerHelper.GetSecureURL(value);//FileServerHelper.CDNURL+ value;
+                                }
+                                else
+                                {
+                                    url= "~/"+ value;
+                                }
+
+                                if (documentAttachmentsTemp != null && documentAttachmentsTemp.Count > 0)
+                                {
+                                    if (!documentAttachmentsTemp.Contains(Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])))
+                                    {
+
+                                        rfvDocument.Enabled = false;
+                                        ((HyperLink)grv.FindControl("hplViewDocs")).Visible = true;
+                                        ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = true;
+                                        ((HyperLink)grv.FindControl("hplViewDocs")).NavigateUrl = url;//"~/" + documentAttachments[Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])];
+
+                                    }
+                                    else
+                                    {
+                                        if (Convert.ToBoolean(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["IsRequired"]))
+                                        {
+                                            rfvDocument.Enabled = true;
+                                            ((HyperLink)grv.FindControl("hplViewDocs")).Visible = false;
+                                            ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = false;
+                                        }
+                                        else
+                                        {
+                                            rfvDocument.Enabled = false;
+                                            ((HyperLink)grv.FindControl("hplViewDocs")).Visible = false;
+                                            ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = false;
+                                        }
+
+                                    }
+
+                                }
+                                else
+                                {
+                                    rfvDocument.Enabled = false;
+                                    ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = true;
+                                    ((HyperLink)grv.FindControl("hplViewDocs")).Visible = true;
+                                    ((HyperLink)grv.FindControl("hplViewDocs")).NavigateUrl =url; //"~/" + documentAttachments[Convert.ToInt32(grdCompanyRegistrationDocs.DataKeys[grv.DataItemIndex].Values["ID"])];
+                                }
+
+                            }
+                            else
+                            {
+                                //  rfvDocument.Enabled = false;
+                                ((HyperLink)grv.FindControl("hplViewDocs")).Visible = false;
+                                ((LinkButton)grv.FindControl("lbnDeleteDocs")).Visible = false;
+
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ExceptionLogger.LogException("CompanyDetailWebPart", "BindRequiredAttachmentDocs", ex);
+                }
+            }
+        }
+        protected void grdCompanyRegistrationDocs_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            try
+            {
+                if (e.Row.RowType == DataControlRowType.Header)
+                {
+                    e.Row.Cells[0].Text = Util.GetLocalizedValue("AttachmentDocuments", Util.ResourceFile.EPAResource);
+                    e.Row.Cells[1].Text = Util.GetLocalizedValue("Attach", Util.ResourceFile.EPAResource);
+                    e.Row.Cells[2].Text = Util.GetLocalizedValue("View", Util.ResourceFile.EPAResource);
+
+                    if (Security.IsUserInGroup(Security.SecurityGroups.EPAEmployees, SPContext.Current.Web.CurrentUser.ID)
+                        || Security.IsUserInGroup(Security.SecurityGroups.EPADivisionHeads, SPContext.Current.Web.CurrentUser.ID))
+                        e.Row.Cells[3].Text = Util.GetLocalizedValue("Delete", Util.ResourceFile.EPAResource);
+                }
+                if (e.Row.RowType == DataControlRowType.DataRow)
+                {
+
+                    Label lblDocumentName = (Label)e.Row.FindControl("lblDocumentName");
+                    Label lblDocumentNameArabic = (Label)e.Row.FindControl("lblDocumentNameArabic");
+
+                    RegularExpressionValidator revDocument = (RegularExpressionValidator)e.Row.FindControl("revDocument");
+                    RegularExpressionValidator regFileNameValidation = (RegularExpressionValidator)e.Row.FindControl("regFileNameValidation");
+
+
+
+                    LinkButton ibnDelete = (LinkButton)e.Row.FindControl("lbnDeleteDocs");
+                    if (Util.IsCurrentCultureArabic())
+                    {
+                        if (lblDocumentNameArabic != null)
+                        {
+                            lblDocumentNameArabic.Visible = true;
+                        }
+                    }
+                    else
+                    {
+                        if (lblDocumentName != null)
+                        {
+                            lblDocumentName.Visible = true;
+                        }
+                    }
+
+                    if (revDocument != null && regFileNameValidation != null)
+                    {
+                        revDocument.Text = Util.GetLocalizedValue("InvalidFile", Util.ResourceFile.EPAMessage);
+                        regFileNameValidation.Text = Util.GetLocalizedValue("fileNameValidation", Util.ResourceFile.EPAMessage);
+
+                    }
+                    if (ibnDelete != null)
+                    {
+                        string confirmDelete = "return CustomConfirmSimple('" + Util.GetLocalizedValue("DeleteConfirmation", Util.ResourceFile.EPAMessage) + "','" + ibnDelete.UniqueID + "')";
+                        ibnDelete.Attributes.Add("onclick", confirmDelete);
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("CompanyDetailWebPart", "grdCompanyRegistrationDocs_RowDataBound", ex);
+            }
+        }
+
+        protected void grdCompanyRegistrationDocs_RowDeleting(object sender, GridViewDeleteEventArgs e)
+        {
+            AttachmentDelete(e);
+        }
+
+        private void AttachmentDelete(GridViewDeleteEventArgs e)
+        {
+            try
+            {
+                ArrayList documentAttachmentsTemp = new ArrayList();
+                if (ViewState["lstTempDelete"] != null)
+                {
+                    documentAttachmentsTemp = (ArrayList)ViewState["lstTempDelete"];
+                    documentAttachmentsTemp.Add(Convert.ToInt32(e.Keys[0]));
+                }
+                else
+                {
+                    documentAttachmentsTemp.Add(Convert.ToInt32(e.Keys[0]));
+                    ViewState["lstTempDelete"] = documentAttachmentsTemp;
+                }
+                BindRequiredAttachmentDocs(Convert.ToInt32(hdnCompanyID.Value));
+
+            }
+            catch (Exception ex)
+            { ExceptionLogger.LogException("CompanyDetailWebPart", "grdCompanyRegistrationDocs_RowDeleting", ex); }
+        }
+
+
+        protected void txtCompanyNameArabi_TextChanged(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrEmpty(txtCompanyNameArabi.Text))
+            {
+                if (!string.IsNullOrEmpty(hdnCompanyID.Value))
+                {
+                    var obj = CompanyHelper.GetCompanyByID(Convert.ToInt32(hdnCompanyID.Value));
+                    if (!CompanyHelper.IsCompanyNameArabicUnique(txtCompanyNameArabi.Text.Trim(), obj.Id) && !CompanyHelper.IsCompanyNameArabicUnique(txtCompanyNameArabi.Text.Trim(), null))
+                    {
+                        txtCompanyNameArabi.Text = Convert.ToString(obj.NameArabic);
+                        ShowNotification(Util.GetLocalizedValue("CompanyNameArabicExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                        txtCompanyNameArabi.Focus();
+                        return;
+                    }
+                }
+                else if (!CompanyHelper.IsCompanyNameArabicUnique(txtCompanyNameArabi.Text.Trim(), null))
+                {
+                    ShowNotification(Util.GetLocalizedValue("CompanyNameArabicExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    txtCompanyNameArabi.Text = string.Empty;
+                    txtCompanyNameArabi.Focus();
+
+                    return;
+                }
+                else { txtCompanyNameEnglish.Focus(); }
+            }
+        }
+
+
+        protected void txtCompanyNameEnglish_TextChanged(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrEmpty(txtCompanyNameEnglish.Text))
+            {
+                if (!string.IsNullOrEmpty(hdnCompanyID.Value))
+                {
+                    var obj = CompanyHelper.GetCompanyByID(Convert.ToInt32(hdnCompanyID.Value));
+                    if (!CompanyHelper.IsCompanyNameEnglishUnique(txtCompanyNameEnglish.Text.Trim(), obj.Id) && !CompanyHelper.IsCompanyNameEnglishUnique(txtCompanyNameEnglish.Text.Trim(), null))
+                    {
+                        txtCompanyNameEnglish.Text = Convert.ToString(obj.Title);
+                        ShowNotification(Util.GetLocalizedValue("CompanyNameEnglishExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                        txtCompanyNameEnglish.Focus();
+                        return;
+                    }
+                }
+                else if (!CompanyHelper.IsCompanyNameEnglishUnique(txtCompanyNameEnglish.Text.Trim(), null))
+                {
+                    ShowNotification(Util.GetLocalizedValue("CompanyNameEnglishExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    txtCompanyNameEnglish.Text = string.Empty;
+                    txtCompanyNameEnglish.Focus();
+                    return;
+                }
+                else
+                {
+                    // txtCompanyCode.Focus();
+                }
+            }
+
+        }
+
+        protected void txtCivilID_TextChanged(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrEmpty(txtCivilID.Text))
+            {
+                if (!string.IsNullOrEmpty(hdnCompanyID.Value))
+                {
+                    var obj = CompanyHelper.GetCompanyByID(Convert.ToInt32(hdnCompanyID.Value));
+                    if (!CompanyHelper.IsCompanyCivilIDUnique(txtCivilID.Text.Trim(), obj.Id) && !CompanyHelper.IsCompanyCivilIDUnique(txtCivilID.Text.Trim(), null))
+                    {
+                        ShowNotification(Util.GetLocalizedValue("CompanyCivilIDExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                        txtCivilID.Text = Convert.ToString(obj.CivilID);
+                        txtCivilID.Focus();
+
+                        return;
+                    }
+                }
+                else if (!CompanyHelper.IsCompanyCivilIDUnique(txtCivilID.Text.Trim(), null))
+                {
+                    ShowNotification(Util.GetLocalizedValue("CompanyCivilIDExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    txtCivilID.Text = string.Empty;
+                    txtCivilID.Focus();
+                    return;
+                }
+
+                else { /* txtMainUserName.Focus();*/ }
+            }
+        }
+
+
+        protected void txtMainUserEmailID_TextChanged(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrEmpty(txtMainUserEmailID.Text))
+            {
+                if (!string.IsNullOrEmpty(hdnCompanyID.Value))
+                {
+                    //  List<CompanyUserItem> lstCompanyUsers = new List<CompanyUserItem>();
+                    var lstCompanyUsers = CompanyHelper.GetCompanyUsersByCompanyID(Convert.ToInt32(hdnCompanyID.Value));
+                    var objCompanyUser = new EPAOzoneDAL.DBcontext.CompanyUser();
+                    if (lstCompanyUsers.Count > 0)
+                    {
+                        objCompanyUser = lstCompanyUsers[0];
+                        bool checkMainEmailID = CompanyHelper.IsEmailAvailable(txtMainUserEmailID.Text, objCompanyUser.Id);
+                        //For Primary user
+                        if (!checkMainEmailID)
+                        {
+                            ShowNotification(Util.GetLocalizedValue("EmailIDExists_Main", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                            txtMainUserEmailID.Text = Convert.ToString(objCompanyUser.Email);
+                            txtMainUserEmailID.Focus();
+                            return;
+                        }
+                    }
+                }
+                else if (!CompanyHelper.IsEmailAvailable(txtMainUserEmailID.Text.Trim(), null))
+                {
+                    ShowNotification(Util.GetLocalizedValue("EmailIDExists_Main", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    txtMainUserEmailID.Text = string.Empty;
+                    txtMainUserEmailID.Focus();
+                    return;
+                }
+                else
+                {
+                    //  txtMainUserLandline.Focus();
+                }
+            }
+        }
+
+        protected void txtSecondaryUserEmailID_TextChanged(object sender, EventArgs e)
+        {
+            if (chkSecondaryUserDetails.Checked)
+            {
+                if (!string.IsNullOrEmpty(hdnCompanyID.Value))
+                {
+                    //  List<CompanyUserItem> lstCompanyUsers = new List<CompanyUserItem>();
+                    var lstCompanyUsers = CompanyHelper.GetCompanyUsersByCompanyID(Convert.ToInt32(hdnCompanyID.Value));
+                    //  CompanyUserItem objSecondaryCompanyUser = new CompanyUserItem();
+                    if (lstCompanyUsers.Count > 0)
+                    {
+                        foreach (var objSecondaryCompanyUser in lstCompanyUsers)
+                        {
+                            //  objSecondaryCompanyUser = lstCompanyUsers[1];
+                            bool checkSecondaryEmailID = CompanyHelper.IsEmailAvailable(txtSecondaryUserEmailID.Text, objSecondaryCompanyUser.Id);
+                            if (!checkSecondaryEmailID)
+                            {
+                                ShowNotification(Util.GetLocalizedValue("EmailIDExists_Second", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                                if (lstCompanyUsers.Count > 1) //
+                                {
+                                    txtSecondaryUserEmailID.Text = Convert.ToString(lstCompanyUsers[1].Email);
+                                    txtSecondaryUserEmailID.Focus();
+                                }
+                                else
+                                {
+                                    txtSecondaryUserEmailID.Text = string.Empty;
+                                    txtSecondaryUserEmailID.Focus();
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+                else if (!string.IsNullOrEmpty(txtSecondaryUserEmailID.Text))
+                {
+                    bool checkSecondEmailID = CompanyHelper.IsEmailAvailable(txtSecondaryUserEmailID.Text.Trim(), null);
+                    //For Secondary User
+                    if (!checkSecondEmailID)
+                    {
+                        ShowNotification(Util.GetLocalizedValue("EmailIDExists_Second", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                        txtSecondaryUserEmailID.Text = string.Empty;
+                        txtSecondaryUserEmailID.Focus();
+                        return;
+                    }
+                }
+                //  else { txtSecondaryUserLandline.Focus(); }
+            }
+        }
+
+        protected void CustomValidatorfileSize_ServerValidate(object source, ServerValidateEventArgs args)
+        {
+            if (grdCompanyRegistrationDocs.Rows.Count > 0)
+            {
+                foreach (GridViewRow grv in grdCompanyRegistrationDocs.Rows)
+                {
+                    CustomValidator CustomValidatorfileSize = ((CustomValidator)grv.FindControl("CustomValidatorfileSize"));
+                    FileUpload fupAttachDoc = ((FileUpload)grv.FindControl("fupAttachDoc"));
+
+                    if (CustomValidatorfileSize != null && fupAttachDoc != null)
+                    {
+                        if (fupAttachDoc.PostedFile.ContentLength > 1024)
+                        {
+                            args.IsValid = false;
+                        }
+                        else
+                        {
+                            args.IsValid = true;
+                        }
+                    }
+                }
+            }
+
+        }
+
+        private bool CRNCheck()
+        {
+            bool status = true;
+            Security.RunWithElevatedPrivelligesAndContextSwitch(delegate
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(txtCommercialRegistrationNumber.Text))
+                    {
+                        {
+                            if (!CompanyHelper.IsCRNUnique(txtCommercialRegistrationNumber.Text.Trim(), strSiteUrl, null))
+                            {
+                                ShowNotification(Util.GetLocalizedValue("CommercialRegistrationNumberExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                                txtCommercialRegistrationNumber.Text = string.Empty;
+                                txtCommercialRegistrationNumber.Focus();
+                                status = false;
+                            }
+                            else if (!CompanyRequestHelper.IsCRNUnique(txtCommercialRegistrationNumber.Text.Trim(), strSiteUrl, null))
+                            {
+                                ShowNotification(Util.GetLocalizedValue("CommercialRegistrationNumberExist", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                                txtCommercialRegistrationNumber.Text = string.Empty;
+                                txtCommercialRegistrationNumber.Focus();
+                                status = false;
+                            }
+                            else { txtMainUserNameArabic.Focus(); }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ExceptionLogger.LogExceptionAnonymous("CompanyDetails", "CRNCheck", ex, strSiteUrl);
+                    txtCommercialRegistrationNumber.Text = string.Empty;
+                    txtCommercialRegistrationNumber.Focus();
+                    status = false;
+                }
+            });
+            return status;
+        }
+
+        private bool MainUserNameCheck()
+        {
+            bool status = true;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(txtUserName.Text))
+                {
+                    bool checkMainUserName = CompanyHelper.IsUserNameAvailable(txtUserName.Text.Trim(), strSiteUrl, null);
+                    // bool checkMainUserNameRequest = CompanyRequest.IsUserNameAvailableinCompanyRequest(txtUserName.Text.Trim(), strSiteUrl, null);
+                    //For Primary user
+                    if (!checkMainUserName)
+                    {
+                        ShowNotification(Util.GetLocalizedValue("UserNameExsists_Main", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                        txtUserName.Text = string.Empty;
+                        txtUserName.Focus();
+                        status = false;
+                    }
+
+
+                    else
+                    {
+                        txtPassword.Focus();
+                    }
+                }
+
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogExceptionAnonymous("CompanyDetails", "MainUserNameCheck", ex, strSiteUrl);
+                txtUserName.Text = string.Empty;
+                txtUserName.Focus();
+                status = false;
+            }
+
+            return status;
+        }
+
+        private bool SecondaryUserNameCheck()
+        {
+            bool status = true;
+
+            try
+            {
+                if (chkSecondaryUserDetails.Checked)
+                {
+                    if (!string.IsNullOrEmpty(txtSecondaryUserName.Text))
+                    {
+                        bool checkMainUserName = CompanyHelper.IsUserNameAvailable(txtSecondaryUserName.Text.Trim(), strSiteUrl, null);
+                        // bool checkMainUserNameRequest = CompanyRequest.IsUserNameAvailableinCompanyRequest(txtUserName.Text.Trim(), strSiteUrl, null);
+                        //For Primary user
+                        if (!checkMainUserName)
+                        {
+                            ShowNotification(Util.GetLocalizedValue("UserNameExsists_Secondary", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                            txtSecondaryUserName.Text = string.Empty;
+                            txtSecondaryUserName.Focus();
+                            status = false;
+                        }
+
+
+                        else
+                        {
+                            txtSecondaryPassword.Focus();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogExceptionAnonymous("companyDetails", "MainUserNameCheck", ex, strSiteUrl);
+                txtSecondaryUserName.Text = string.Empty;
+                txtSecondaryUserName.Focus();
+                status = false;
+            }
+
+            return status;
+        }
+
+        protected void txtSecondaryUserName_TextChanged(object sender, EventArgs e)
+        {
+            if (!SecondaryUserNameCheck())
+            {
+                return;
+            }
+        }
+
+        protected void txtUserName_TextChanged(object sender, EventArgs e)
+        {
+            if (!MainUserNameCheck())
+            {
+                return;
+            }
+        }
+
+        protected void txtCommercialRegistrationNumber_TextChanged(object sender, EventArgs e)
+        {
+            if (!CRNCheck())
+            {
+                return;
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+        private bool filesizeCheck(string fileSize, long fileLength)
+        {
+
+            int MaxAllowedFIlesize = Convert.ToInt32(fileSize) * 1000000;
+
+            if (fileLength > MaxAllowedFIlesize)
+            {
+                return false;
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        private bool isValidateRequi1redDocuments(CivilIDAttachment attchment)
+        {
+            try
+            {
+
+                int iFileSize = attchment.FileBytes.Length;
+                string fileSize = string.Empty;
+                Security.RunWithElevatedPrivelligesAndContextSwitch(delegate
+                {
+                    fileSize = Configuration.GetConfigurationValue(ConfigurationKey.MaxFileSizeInMB, strSiteUrl);
+                });
+
+                int MaxAllowedFIlesize = Convert.ToInt32(fileSize) * 1000000;
+
+                if (iFileSize > MaxAllowedFIlesize)
+                {
+                    return false;
+                }
+
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogExceptionAnonymous("CompanyDetails", "checking file size of civilID copies", ex, strSiteUrl);
+            }
+            return true;
+        }
+
+
+
+        protected void UpdateProfileCRNandAttachments()
+        {
+            SPSecurity.RunWithElevatedPrivileges(delegate
+                  {
+                      try
+                      {
+                          var cmpny = new EPAOzoneDAL.DBcontext.Company();
+                          cmpny.Id = Convert.ToInt32(hdnCompanyID.Value);
+                          cmpny.CommercialRegNo = txtCommercialRegistrationNumber.Text.Trim();
+                          var update = CompanyHelper.UpdateCompanyCommecialRegNo(cmpny, strSiteUrl);
+                          if (update != null)
+                          {
+                              ExceptionLogger.LogInfo("CompanyDetailWebPart", "Success", " Update Done CRN number updated for compnay:" + txtCompanyNameEnglish.Text);
+                          }
+
+                          ShowNotificationAndRedirect(Util.GetLocalizedValue("profileupdationDone", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Success, SPContext.Current.Web.Url);
+
+
+                      }
+                      catch (Exception ex)
+                      {
+                          ExceptionLogger.LogException("CompanyDetailWebPart", "UpdateProfileCRNandAttachments", ex);
+                      }
+                  });
+        }
+
+        protected void btnUpdateProfile_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string fileSize = string.Empty;
+                Security.RunWithElevatedPrivelligesAndContextSwitch(delegate
+                {
+                    fileSize = Configuration.GetConfigurationValue(ConfigurationKey.MaxFileSizeInMB, strSiteUrl);
+                });
+                bool isValidData = true;
+                if (!string.IsNullOrEmpty(txtCommercialRegistrationNumber.Text.Trim()))
+                {
+                    if (Page.Session["MainUserCivilIDCopy"] != null)
+                    {
+                        if (isValidateRequi1redDocuments((CivilIDAttachment)Page.Session["MainUserCivilIDCopy"]))
+                        {
+                            isValidData = true;
+                        }
+                        else
+                        {
+
+                            ShowNotification(string.Format(Util.GetLocalizedValue("MaxFileSize", Util.ResourceFile.EPAMessage), fileSize), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        ShowNotification(Util.GetLocalizedValue("mainuserCivilIDcopyrequired", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+
+
+                        return;
+                    }
+                    if (chkSecondaryUserDetails.Checked)
+                    {
+                        if (Page.Session["SecondaryUserCivilIDCopy"] != null)
+                        {
+                            if (isValidateRequi1redDocuments((CivilIDAttachment)Page.Session["SecondaryUserCivilIDCopy"]))
+                            {
+                                isValidData = true;
+                            }
+                            else
+                            {
+                                ShowNotification(string.Format(Util.GetLocalizedValue("MaxFileSize", Util.ResourceFile.EPAMessage), fileSize), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            ShowNotification(Util.GetLocalizedValue("Secondarycopyrequired", Util.ResourceFile.EPAMessage), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        isValidData = true;
+                    }
+
+                }
+                else
+                {
+                    ShowNotification(Util.GetLocalizedValue("PleaseenterCRNNumber", Util.ResourceFile.EPAResource), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                    txtCommercialRegistrationNumber.Text = string.Empty;
+                    txtCommercialRegistrationNumber.Focus();
+                    return;
+                }
+
+                if (isValidData)
+                {
+                    UpdateProfileCRNandAttachments();
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("CompanyDetailWebPart", "UpdateProfile-CRN, CivilID Copies", ex);
+            }
+        }
+
+        protected void txtComCentralNumber_TextChanged(object sender, EventArgs e)
+        {
+            lblValidLicense.Visible = false;
+            txtCommercialRegistrationNumber.Text = "";
+            txtCompanyNameArabi.Text = "";
+            txtCompanyNameEnglish.Text = "";
+            TradeService tservice = new TradeService();
+            EPAOzoneDAL.TradeWebService.P_LICN licInfo = tservice.getLicInfoByCentralNumber(txtComCentralNumber.Text.Trim());
+            if (licInfo.Status == "1")
+            {
+                lblValidLicense.Visible = true;
+                txtCommercialRegistrationNumber.Text = licInfo.LICN_DATA.COMM_BOOK_NO;
+                txtCompanyNameArabi.Text = licInfo.LICN_DATA.COMPANY_NAME;
+                // txtCompanyNameEnglish.Text = licInfo.LICN_DATA.COMPANY_NAME;
+                hdnLicIssueDate.Value = licInfo.LICN_DATA.LICN_COMM_SDATE;
+                hdnLicEndDate.Value = licInfo.LICN_DATA.LICN_COMM_EDATE;
+                hdnLicCivilID.Value = licInfo.LICN_DATA.LICN_CIVIL_ID;
+                txtLicIssuedDate.Text = licInfo.LICN_DATA.LICN_COMM_SDATE;
+                txtLicExpiryDate.Text = licInfo.LICN_DATA.LICN_COMM_EDATE;
+                lblValidLicense.InnerText = Util.GetLocalizedValue("ValidLicense", Util.ResourceFile.EPAMessage);
+            }
+            else if (licInfo.Status == "0")
+            {
+                ShowNotification(Util.GetLocalizedValue("InvalidCentralNumber", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                txtComCentralNumber.Text = "";
+            }
+            else if (licInfo.Status == "2")
+            {
+                ShowNotification(Util.GetLocalizedValue("LicenseStopped", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                txtComCentralNumber.Text = "";
+            }
+            else
+            {
+                ShowNotification(Util.GetLocalizedValue("SomethingWrong", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                txtComCentralNumber.Text = "";
+
+            }
+        }
+
+        protected void txtSecondaryUserSerialNumber_TextChanged(object sender, EventArgs e)
+        {
+            // txtSecondaryUserName.Text = "";
+            txtSecondaryUserNameArabic.Text = txtSecondaryUserNameEnglish.Text = "";
+            lblSecUserIdValidation.Visible = false;
+
+            if (txtSecondaryUserCivilID.Text.Trim() == "")
+            {
+                ShowNotification(Util.GetLocalizedValue("EmptyCivilID", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                return;
+            }
+            else if (txtSecondaryUserSerialNumber.Text.Trim() == "")
+            {
+                ShowNotification(Util.GetLocalizedValue("RegEmptySerialNumber", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                return;
+            }
+            else
+            {
+                //  txtSecondaryUserNameArabic.Enabled = true;
+                //  txtSecondaryUserNameEnglish.Enabled = true;
+
+                PaciIntegration paci = new PaciIntegration();
+                EPAOzoneDAL.TradeWebService.PaciResult result = paci.getUserInfoFromPaci(txtSecondaryUserCivilID.Text.Trim(), txtSecondaryUserSerialNumber.Text.Trim());
+                if (result.StatusCode == "200")
+                {
+                    lblSecUserIdValidation.Visible = true;
+                    bool isArabic = Util.IsCurrentCultureArabic();
+                    // if (result.cardStatus == "1")
+                    {
+                        txtSecondaryUserNameArabic.Text = result.arFullName;
+                        txtSecondaryUserNameEnglish.Text = result.enFullName;
+
+                    }
+
+
+
+                }
+                else
+                {
+                    string Message = "";
+                    if (Util.IsCurrentCultureArabic())
+                        Message = result.MessageAR;
+                    else
+                        Message = result.MessageEn;
+
+                    ShowNotification(Message, NotificationTypes.Warning, false);
+                    // txtSecondaryUserName.Text = "";
+                    txtSecondaryUserNameArabic.Text = txtSecondaryUserNameEnglish.Text = "";
+                }
+
+
+            }
+        }
+
+        protected void txtMainUserSerialNumber_TextChanged(object sender, EventArgs e)
+        {
+            // txtMainUserName.Text = "";
+            txtMainUserNameArabic.Text = txtMainUserNameEnglish.Text = "";
+            lblMainUserIdLicValidation.Visible = false;
+            if (txtMainUserCivilID.Text.Trim() == "")
+            {
+                ShowNotification(Util.GetLocalizedValue("EmptyCivilID", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                return;
+            }
+            else if (txtMainUserSerialNumber.Text.Trim() == "")
+            {
+                ShowNotification(Util.GetLocalizedValue("RegEmptySerialNumber", Util.ResourceFile.EPAMessage), NotificationTypes.Warning, false);
+                return;
+            }
+            else
+            {
+
+                //   txtMainUserNameArabic.Enabled = true;
+                //   txtMainUserNameEnglish.Enabled = true;
+
+                PaciIntegration paci = new PaciIntegration();
+                EPAOzoneDAL.TradeWebService.PaciResult result = paci.getUserInfoFromPaci(txtMainUserCivilID.Text.Trim(), txtMainUserSerialNumber.Text.Trim());
+                if (result.StatusCode == "200")
+                {
+                    lblMainUserIdLicValidation.Visible = true;
+                    bool isArabic = Util.IsCurrentCultureArabic();
+                    //  if (result.cardStatus == "1")
+                    {
+                        txtMainUserNameArabic.Text = result.arFullName;
+                        txtMainUserNameEnglish.Text = result.enFullName;
+                        //   lblMainUserIdLicValidation.Text = isArabic ? "الهوية صالحة" : "Valid ID License";
+                        //   lblMainUserIdLicValidation.ForeColor = Color.Green;
+                    }
+                    //else
+                    //{
+                    //    lblMainUserIdLicValidation.Text = isArabic ? "الهوية غير صالحة" : "Invalid ID License";
+                    //    lblMainUserIdLicValidation.ForeColor = Color.Red;
+                    //}
+
+                }
+                else
+                {
+                    string Message = "";
+                    if (Util.IsCurrentCultureArabic())
+                        Message = result.MessageAR;
+                    else
+                        Message = result.MessageEn;
+
+                    ShowNotification(Message, NotificationTypes.Warning, false);
+                    // txtMainUserName.Text = "";
+                    txtMainUserNameArabic.Text = txtMainUserNameEnglish.Text = "";
+                }
+
+
+            }
+        }
+
+        protected void btnApplychangeRequest_Click(object sender, EventArgs e)
+        {
+
+            var anyRequestPending = CompanyHelper.IsPendingChangeRequest(Convert.ToInt32(hdnCompanyID.Value));
+            if (anyRequestPending)
+            {
+                ShowNotification(new LocalizationManager().GetLocalizedString("new_change_warning_msg"), EPAOzoneDAL.Enumerations.NotificationTypes.Warning, false);
+                return;
+            }
+            else
+            {
+                Page.Response.Redirect("EditCompanyProfile.aspx?cid="+HttpServerUtility.UrlTokenEncode(Encoding.UTF8.GetBytes(hdnCompanyID.Value)));
+            }
+
+        }
+
+        protected void grdHistory_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            try
+            {
+                if (e.Row.RowType == DataControlRowType.Header)
+                {
+                    e.Row.Cells[0].Text = Util.GetLocalizedValue("CompanyName", Util.ResourceFile.EPAResource);
+                    e.Row.Cells[1].Text = Util.GetLocalizedValue("RequestStatus", Util.ResourceFile.EPAResource);
+                    e.Row.Cells[2].Text = Util.GetLocalizedValue("Comments", Util.ResourceFile.EPAResource);
+                    e.Row.Cells[3].Text = Util.GetLocalizedValue("Date", Util.ResourceFile.EPAResource);
+                    e.Row.Cells[4].Text = Util.GetLocalizedValue("ActionBy", Util.ResourceFile.EPAResource);
+                }
+                if (e.Row.RowType == DataControlRowType.DataRow)
+                {
+                    var dataItem = e.Row.DataItem as VWCompanyRequestStatusHistory;
+                    var row = e.Row;
+                    if (Util.IsCurrentCultureArabic())
+                    {
+                        ((Label)row.FindControl("lblCompany")).Text = dataItem.companyNameArabic;
+                    }
+                    else
+                    {
+                        ((Label)row.FindControl("lblCompany")).Text = dataItem.companyTitle;
+                    }
+                    if (Util.IsCurrentCultureArabic())
+                    {
+
+
+                        ((Label)row.FindControl("lblRequestStatus")).Text = dataItem.RequestStatusNameArabic;
+
+                    }
+                    else
+                    {
+                        ((Label)row.FindControl("lblRequestStatus")).Text = dataItem.RequestStatusTitle;
+                    }
+
+                    ((Label)row.FindControl("lblComments")).Text = dataItem.UpdateDetails;
+                    if (Util.IsCurrentCultureArabic())
+                    {
+                        var DTFormat = new System.Globalization.CultureInfo("ar-SA", false).DateTimeFormat;
+                        DTFormat.Calendar = new System.Globalization.GregorianCalendar();
+                        ((Label)row.FindControl("lblCreated")).Text = dataItem.CreatedAt.Value.ToString("dd/MM/yyyy hh:mm tt", DTFormat);
+                    }
+                    else
+                    {
+                        ((Label)row.FindControl("lblCreated")).Text = dataItem.CreatedAt.Value.ToString("dd/MM/yyyy hh:mm tt");
+
+                    }
+                    if (!dataItem.RequestStatus.Value.Equals(Convert.ToInt32(EPAOzoneDAL.Enumerations.CompanyRequestStatus.NewRequest)))
+                    {
+                        ((Label)row.FindControl("lblCreatedBy")).Text = dataItem.CreatedBy;
+                    }
+                    else
+                    {
+                        ((Label)row.FindControl("lblCreatedBy")).Text = string.Empty;
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("ApproveCompanyRegistration", "grdHistory_RowDataBound", ex);
+            }
+        }
+
+        private void BindRequestStatusHistoryByCompany()
+        {
+            try
+            {
+
+                var his = new List<VWCompanyRequestStatusHistory>();
+
+
+                his = EPAOzoneDAL.CompanyRequestHelper.RequestStatusHistoryByCompanyDet(Convert.ToInt32(hdnCompanyID.Value));
+
+
+                grdHistory.DataSource = his;
+                grdHistory.DataBind();
+
+                if (his != null && his.Count > 0)
+                {
+                    divRequestStatusHistory.Visible = true;
+                    grdHistory.Visible=true;
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionLogger.LogException("ApproveCompanyRegistration", "BindRequestStatusHistoryByCompany", ex);
+            }
+        }
+
+    }
+}
+
+public class CivilIDAttachment
+{
+    public string FileName { get; set; }
+    public byte[] FileBytes { get; set; }
+}
+
+
