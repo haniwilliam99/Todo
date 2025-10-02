@@ -1,6 +1,12 @@
 # Todo
 To do web app single page with mvc5 asp.net identity
 
+## Requirements
+- SQL Server LocalDB (latest version) or SQL Server 2014+
+- Visual Studio 2013 or later
+- .NET Framework 4.5
+
+## Setup Instructions
 
 Please follow this steps to run project 
 
